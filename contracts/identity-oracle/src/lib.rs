@@ -34,14 +34,21 @@ pub struct IdentityOracle;
 
 #[contractimpl]
 impl IdentityOracle {
-    pub fn initialize(_env: Env, _admin: Address) {
-        // TODO: store admin in instance storage
-        panic!("not yet implemented")
+    pub fn initialize(env: Env, admin: Address) {
+        if env.storage().instance().has(&DataKey::Admin) {
+            panic!("already initialized");
+        }
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Admin, &admin);
     }
 
-    pub fn register_issuer(_env: Env, _admin: Address, _issuer: Address) {
-        // TODO: require admin auth, store issuer as trusted
-        panic!("not yet implemented")
+    pub fn register_issuer(env: Env, admin: Address, issuer: Address) {
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        if admin != stored_admin {
+            panic!("not authorized");
+        }
+        admin.require_auth();
+        env.storage().persistent().set(&DataKey::TrustedIssuer(issuer), &true);
     }
 
     pub fn anchor_did(_env: Env, _subject: Address, _did_doc_cid: String) {
@@ -74,4 +81,20 @@ impl IdentityOracle {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Env};
+
+    #[test]
+    fn test_initialize_sets_admin() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, IdentityOracle);
+        let client = IdentityOracleClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        // verify by calling register_issuer as admin (should not panic)
+        let issuer = Address::generate(&env);
+        client.register_issuer(&admin, &issuer);
+    }
+}
