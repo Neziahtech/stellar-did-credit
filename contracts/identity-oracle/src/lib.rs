@@ -96,6 +96,25 @@ impl IdentityOracle {
             .publish((symbol_short!("VCAnch"),), (issuer, subject, vc_hash));
     }
 
+    pub fn mark_vc_revoked(env: Env, issuer: Address, subject: Address, vc_hash: BytesN<32>) {
+        issuer.require_auth();
+        let key = DataKey::VCAnchors(subject);
+        let mut anchors: Vec<VCRecord> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(Vec::new(&env));
+
+        let mut updated = Vec::new(&env);
+        for mut record in anchors.iter() {
+            if record.vc_hash == vc_hash && record.issuer == issuer {
+                record.revoked = true;
+            }
+            updated.push_back(record);
+        }
+        env.storage().persistent().set(&key, &updated);
+    }
+
     pub fn is_verified(env: Env, subject: Address) -> bool {
         let key = DataKey::VCAnchors(subject);
         let anchors: Vec<VCRecord> = env
@@ -234,5 +253,29 @@ mod tests {
         }
 
         assert_eq!(client.get_vc_count(&subject), 3);
+    }
+
+    #[test]
+    fn test_revoked_vc_fails_is_verified() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, IdentityOracle);
+        let client = IdentityOracleClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let issuer = Address::generate(&env);
+        client.register_issuer(&admin, &issuer);
+
+        let subject = Address::generate(&env);
+        let vc_hash = BytesN::from_array(&env, &[1u8; 32]);
+        client.anchor_vc(&issuer, &subject, &vc_hash);
+
+        assert!(client.is_verified(&subject));
+
+        client.mark_vc_revoked(&issuer, &subject, &vc_hash);
+
+        assert!(!client.is_verified(&subject));
     }
 }
