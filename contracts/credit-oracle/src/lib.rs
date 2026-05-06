@@ -83,13 +83,23 @@ impl CreditOracle {
     }
 
     /// Register a trusted feeder address
-    pub fn register_feeder(_env: Env, _feeder: Address) {
-        panic!("not implemented");
+    pub fn register_feeder(env: Env, admin: Address, feeder: Address) {
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        if admin != stored_admin {
+            panic!("not authorized");
+        }
+        admin.require_auth();
+        env.storage().persistent().set(&DataKey::TrustedFeeder(feeder), &true);
     }
 
     /// Register a trusted lender address
-    pub fn register_lender(_env: Env, _lender: Address) {
-        panic!("not implemented");
+    pub fn register_lender(env: Env, admin: Address, lender: Address) {
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        if admin != stored_admin {
+            panic!("not authorized");
+        }
+        admin.require_auth();
+        env.storage().persistent().set(&DataKey::TrustedLender(lender), &true);
     }
 
     /// Update transaction statistics for a user
@@ -143,5 +153,40 @@ mod tests {
         
         let w = client.get_scoring_weights();
         assert_eq!(w.vc_weight + w.tx_weight + w.repayment_weight, 100);
+    }
+
+    #[test]
+    #[should_panic(expected = "not authorized")]
+    fn test_only_admin_can_register_feeder() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, CreditOracle);
+        let client = CreditOracleClient::new(&env, &contract_id);
+        
+        let admin = Address::generate(&env);
+        let non_admin = Address::generate(&env);
+        let feeder = Address::generate(&env);
+        
+        client.initialize(&admin);
+        client.register_feeder(&non_admin, &feeder);
+    }
+
+    #[test]
+    fn test_register_lender_succeeds() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, CreditOracle);
+        let client = CreditOracleClient::new(&env, &contract_id);
+        
+        let admin = Address::generate(&env);
+        let lender = Address::generate(&env);
+        
+        client.initialize(&admin);
+        client.register_lender(&admin, &lender);
+        
+        let is_trusted: bool = env.as_contract(&contract_id, || {
+            env.storage().persistent().get(&DataKey::TrustedLender(lender.clone())).unwrap_or(false)
+        });
+        assert!(is_trusted);
     }
 }
