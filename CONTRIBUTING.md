@@ -37,7 +37,7 @@ type(scope): short description
 
 feat(sdk): implement anchorDID wrapper
 fix(identity-oracle): handle empty vc list in is_verified
-docs(contributing): add wave program section
+docs(contributing): add contributing guidelines
 test(revocation-registry): add batch revoke edge case
 chore(deps): bump soroban-sdk to 25.3.1
 ```

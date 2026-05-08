@@ -4,7 +4,7 @@
 
 A decentralized identity and credit scoring protocol built on Stellar. Users own their financial identity as a cryptographic keypair, collect verifiable credentials from trusted issuers, and receive a portable credit score computed transparently on-chain — no bank account required, no central credit bureau.
 
-**Status:** This project is in active development and participates in the [Stellar Wave Program on Drips](https://drips.network). Contributors earn USDC rewards for resolving labeled issues. See [Contributing](#contributing) to get started.
+**Status:** This project is in active development. See [Contributing](#contributing) to get started.
 
 ## Table of contents
 
@@ -343,7 +343,7 @@ Security audit. Mainnet deployment. Issuer onboarding program.
 
 ## Contributing
 
-This project participates in the Stellar Wave Program on Drips. Contributors earn USDC rewards by resolving labeled GitHub issues during weekly sprints.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and guidelines.
 
 ### How to contribute
 
@@ -371,7 +371,7 @@ This project participates in the Stellar Wave Program on Drips. Contributors ear
 
 Full setup and guidelines: [CONTRIBUTING.md](CONTRIBUTING.md)
 
-### Open issues for Wave contributors
+### Open issues
 
 | #                                                                   | Title                                                               | Complexity |
 | ------------------------------------------------------------------- | ------------------------------------------------------------------- | ---------- |
@@ -394,7 +394,6 @@ Full setup and guidelines: [CONTRIBUTING.md](CONTRIBUTING.md)
 - [W3C Verifiable Credentials](https://www.w3.org/TR/vc-data-model/)
 - [Stellar Laboratory](https://laboratory.stellar.org)
 - [Stellar Expert (Testnet Explorer)](https://stellar.expert/explorer/testnet)
-- [Drips Wave Program](https://drips.network)
 - [Project Architecture](docs/architecture.md)
 - [Scoring Specification](docs/scoring-spec.md)
 - [DID Method Specification](docs/did-spec.md)
