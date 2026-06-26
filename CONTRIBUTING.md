@@ -1,5 +1,20 @@
 # Contributing to stellar-did-credit
 
+## ⚠️ Never commit secrets
+
+**Stellar secret keys start with `S` and are 56 characters long.** Never commit them.
+
+Common ways contributors accidentally expose secrets:
+- Committing a `.env` file containing `STELLAR_SECRET_KEY=S...`
+- Committing key files from `~/.config/stellar/identity/`
+- Hardcoding a secret key in a test or script
+
+GitHub's secret scanner will detect any committed Stellar secret key, flag your commit, and may restrict your account. The `.gitignore` already excludes `.env` files — do not work around it.
+
+If you need a throwaway key for testing, generate one with `stellar keys generate` and let `stellar-cli` manage it locally. Never paste the secret into any file tracked by git.
+
+---
+
 ## Prerequisites
 
 - Rust stable (`rustup update stable`)
