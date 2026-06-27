@@ -114,8 +114,9 @@ A minimal, standalone registry that maps VC hashes to their revocation status. I
 | Function                          | Caller   | Description                                   |
 | --------------------------------- | -------- | --------------------------------------------- |
 | `initialize(admin)`               | deployer | Sets the contract administrator               |
-| `revoke(issuer, vc_hash)`         | issuer   | Marks a VC hash as revoked                    |
-| `batch_revoke(issuer, vc_hashes)` | issuer   | Revokes multiple VC hashes in one transaction |
+| `revoke(issuer, vc_hash)`         | issuer   | Marks a VC hash as revoked (issuer authority enforced per `vc_hash`) |
+| `batch_revoke(issuer, vc_hashes)` | issuer   | Revokes multiple VC hashes in one transaction (issuer authority enforced per `vc_hash`) |
+
 | `is_revoked(vc_hash)`             | anyone   | Returns true if the hash has been revoked     |
 
 **Storage layout**
@@ -124,7 +125,9 @@ A minimal, standalone registry that maps VC hashes to their revocation status. I
 | ------------------------ | --------- | ------------------------------------------- |
 | `Admin`                  | `Address` | Instance storage — contract admin           |
 | `Status(BytesN<32>)`     | `bool`    | Persistent — revocation flag for a VC hash  |
-| `IssuerOfVC(BytesN<32>)` | `Address` | Persistent — which issuer revoked this hash |
+| `RegisteredVCIssuer(BytesN<32>)` | `Address` | Persistent — authority that is allowed to revoke this hash (first issuer wins) |
+| `IssuerOfVC(BytesN<32>)` | `Address` | Persistent — which issuer performed the latest revoke call for this hash |
+
 
 ---
 

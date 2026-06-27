@@ -16,8 +16,10 @@ pub enum RevocationRegistryError {
     AlreadyInitialized = 1,
     /// Caller is not authorized to perform this action.
     NotAuthorized = 2,
+    /// VC hash was revoked/registered for a different issuer than the caller.
+    IssuerMismatch = 3,
     /// No pending admin proposal exists.
-    NoPendingAdmin = 3,
+    NoPendingAdmin = 4,
 }
 
 /// Storage keys for revocation registry contract.
@@ -29,9 +31,13 @@ pub enum RevocationKey {
     /// Pending contract admin address for two-step transfer.
     PendingAdmin,
 
+    /// Registered authority (first issuer) for a VC hash.
+    /// vc_hash → Address
+    RegisteredVCIssuer(BytesN<32>),
+
     /// Revocation status for a VC hash.
     Status(BytesN<32>), // vc_hash → bool
-    /// Address of issuer who revoked the VC.
+    /// Address of issuer who revoked the VC (latest issuer call).
     IssuerOfVC(BytesN<32>), // vc_hash → Address (who revoked)
 }
 
@@ -97,6 +103,26 @@ impl RevocationRegistry {
     /// Revoke a single verifiable credential by its hash.
     pub fn revoke(env: Env, issuer: Address, vc_hash: BytesN<32>) -> Result<(), RevocationRegistryError> {
         issuer.require_auth();
+
+        // Enforce authority per vc_hash: the first issuer that revokes a hash becomes the registered authority.
+        let registered: Option<Address> = env
+            .storage()
+            .persistent()
+            .get(&RevocationKey::RegisteredVCIssuer(vc_hash.clone()));
+
+        match registered {
+            Some(existing) => {
+                if existing != issuer {
+                    return Err(RevocationRegistryError::IssuerMismatch);
+                }
+            }
+            None => {
+                env.storage()
+                    .persistent()
+                    .set(&RevocationKey::RegisteredVCIssuer(vc_hash.clone()), &issuer);
+            }
+        }
+
         env.storage()
             .persistent()
             .set(&RevocationKey::Status(vc_hash.clone()), &true);
@@ -124,6 +150,25 @@ impl RevocationRegistry {
     ) -> Result<(), RevocationRegistryError> {
         issuer.require_auth();
         for vc_hash in vc_hashes.iter() {
+            // Enforce authority per vc_hash: the first issuer that revokes a hash becomes the registered authority.
+            let registered: Option<Address> = env
+                .storage()
+                .persistent()
+                .get(&RevocationKey::RegisteredVCIssuer(vc_hash.clone()));
+
+            match registered {
+                Some(existing) => {
+                    if existing != issuer {
+                        return Err(RevocationRegistryError::IssuerMismatch);
+                    }
+                }
+                None => {
+                    env.storage()
+                        .persistent()
+                        .set(&RevocationKey::RegisteredVCIssuer(vc_hash.clone()), &issuer);
+                }
+            }
+
             env.storage()
                 .persistent()
                 .set(&RevocationKey::Status(vc_hash.clone()), &true);
@@ -182,25 +227,23 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn test_only_issuer_can_revoke() {
+    fn test_only_registered_issuer_can_revoke() {
         let env = Env::default();
         env.mock_all_auths();
         let contract_id = env.register_contract(None, RevocationRegistry);
         let client = RevocationRegistryClient::new(&env, &contract_id);
 
-        let issuer = Address::generate(&env);
+        let issuer_a = Address::generate(&env);
+        let issuer_b = Address::generate(&env);
         let vc_hash = BytesN::from_array(&env, &[3u8; 32]);
 
-        // Mock auth will fail if we don't provide the correct address
-        // However, mock_all_auths() makes all auths succeed.
-        // To test failure, we need to NOT use mock_all_auths or specifically fail it.
-        // Let's create a new env without mock_all_auths for this test.
-        let env2 = Env::default();
-        let contract_id2 = env2.register_contract(None, RevocationRegistry);
-        let client2 = RevocationRegistryClient::new(&env2, &contract_id2);
-        let _ = client2.revoke(&issuer, &vc_hash);
-        let _ = client;
+        // First revoke registers issuer_a for this vc_hash.
+        client.revoke(&issuer_a, &vc_hash).unwrap();
+        assert!(client.is_revoked(&vc_hash));
+
+        // issuer_b must not be able to revoke the same hash.
+        let res = client.revoke(&issuer_b, &vc_hash);
+        assert_eq!(res, Err(RevocationRegistryError::IssuerMismatch));
     }
 
     #[test]

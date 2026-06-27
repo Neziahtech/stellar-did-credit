@@ -1,24 +1,8 @@
-# TODO - Admin transfer (two-step) for contracts
+# TODO - Issue #28 revocation-registry issuer bypass
 
-- [ ] Update identity-oracle/src/lib.rs
-  - [ ] Add PendingAdmin to storage
-  - [ ] Add propose_new_admin(current_admin, new_admin)
-  - [ ] Add accept_admin(new_admin)
-  - [ ] Add tests: admin transfer two-step + non-pending cannot accept
-
-- [ ] Update credit-oracle/src/lib.rs
-  - [ ] Add PendingAdmin to storage
-  - [ ] Add propose_new_admin(current_admin, new_admin)
-  - [ ] Add accept_admin(new_admin)
-  - [ ] Ensure admin-gated functions use current Admin address only (already done)
-  - [ ] Add tests: admin transfer two-step + non-pending cannot accept
-
-- [ ] Update revocation-registry/src/lib.rs
-  - [ ] Add PendingAdmin to storage
-  - [ ] Add propose_new_admin(current_admin, new_admin)
-  - [ ] Add accept_admin(new_admin)
-  - [ ] Add tests: admin transfer two-step + non-pending cannot accept
-
-- [ ] Ensure generated client bindings compile with new methods (via soroban SDK macros)
-- [ ] Run cargo test for all contracts/tests
+- [ ] Update `contracts/revocation-registry/src/lib.rs` to lock revocation authority per `vc_hash` (first issuer registers; later issuer must match)
+- [ ] Add/extend revocation-registry tests (unit tests inside the contract) for “only original/registered issuer can revoke”
+- [ ] Add integration test in `contracts/tests/src/integration_test.rs` covering issuer bypass prevention
+- [ ] Update `docs/architecture.md` to document the authority model
+- [ ] Run workspace tests to ensure snapshots and all tests pass
 
