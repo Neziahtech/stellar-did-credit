@@ -24,11 +24,22 @@ If you need a throwaway key for testing, generate one with `stellar keys generat
 
 ## Setup
 
+> **Important:** Do not clone this repo directly. You must fork it first so your PR targets the correct upstream repository.
+
+1. Click **Fork** on [github.com/cybermax4200/stellar-did-credit](https://github.com/cybermax4200/stellar-did-credit) to create `your-username/stellar-did-credit`
+2. Clone **your fork** (not the original):
+
 ```bash
-git clone https://github.com/cybermax4200/stellar-did-credit.git
+git clone https://github.com/YOUR_USERNAME/stellar-did-credit.git
 cd stellar-did-credit
 pnpm install
 cargo test --workspace
+```
+
+3. Add the upstream remote so you can pull future changes:
+
+```bash
+git remote add upstream https://github.com/cybermax4200/stellar-did-credit.git
 ```
 
 ## Running tests
@@ -69,6 +80,15 @@ Each command:
 - Exits with non-zero status if any sub-command fails
 - Runs Rust tests first, then TypeScript tests
 - Is the recommended way to validate before opening a PR
+
+## Opening a pull request
+
+1. Push your branch to **your fork**: `git push origin feat/your-feature`
+2. Go to your fork on GitHub and click **"Contribute" → "Open pull request"**
+3. Confirm the base repository is **`cybermax4200/stellar-did-credit`** and base branch is **`main`** — GitHub sometimes defaults to your fork's own `main`, which is wrong
+4. Fill in the PR template and submit
+
+PRs opened against your own fork instead of the upstream repo will not be seen by maintainers.
 
 ## PR guidelines
 

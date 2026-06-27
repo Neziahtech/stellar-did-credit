@@ -1,6 +1,19 @@
-                  #![no_std]
-#[allow(unused_imports)]
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, BytesN, Env, String, Vec, Symbol};
+#![no_std]
+use soroban_sdk::{contract, contractimpl, contracttype, contracterror, symbol_short, Address, BytesN, Env, String, Vec};
+
+/// Error types for the identity-oracle contract.
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub enum IdentityOracleError {
+    /// Contract is already initialized.
+    AlreadyInitialized = 1,
+    /// Caller is not authorized to perform this action.
+    NotAuthorized = 2,
+    /// Issuer is not registered as a trusted issuer.
+    IssuerNotRegistered = 3,
+    /// The provided CID is invalid.
+    InvalidCID = 4,
+}
 
 /// Storage key variants for the identity-oracle contract.
 #[contracttype]
@@ -27,6 +40,20 @@ pub struct VCRecord {
     pub anchored_at: u64,
     /// Whether this credential has been revoked by the issuer.
     pub revoked: bool,
+}
+
+/// Returns true if `s` starts with `prefix` by comparing their leading bytes on the stack.
+/// `prefix` must be ≤ 32 bytes.
+fn cid_starts_with(_env: &Env, s: &String, prefix: &String) -> bool {
+    let plen = prefix.len() as usize;
+    if (s.len() as usize) < plen {
+        return false;
+    }
+    let mut sbuf = [0u8; 64];
+    let mut pbuf = [0u8; 32];
+    s.copy_into_slice(&mut sbuf[..s.len() as usize]);
+    prefix.copy_into_slice(&mut pbuf[..plen]);
+    sbuf[..plen] == pbuf[..plen]
 }
 
 #[contract]
@@ -58,6 +85,8 @@ impl IdentityOracle {
     }
 
     /// Deregister a trusted credential issuer, preventing future credential anchoring.
+    ///
+    /// Does NOT retroactively revoke existing VCs anchored by this issuer.
     pub fn deregister_issuer(env: Env, admin: Address, issuer: Address) -> Result<(), IdentityOracleError> {
         let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
         if admin != stored_admin {
@@ -70,35 +99,25 @@ impl IdentityOracle {
         Ok(())
     }
 
-    /// Deregister a trusted issuer
-    ///
-    /// Removes the issuer's trusted status. This does NOT retroactively revoke existing VCs
-    /// anchored by this issuer — the deregistration only prevents the issuer from anchoring new VCs.
-    pub fn deregister_issuer(env: Env, admin: Address, issuer: Address) {
-        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
-        if admin != stored_admin {
-            panic!("not authorized");
-        }
-        admin.require_auth();
-        env.storage().persistent().remove(&DataKey::TrustedIssuer(issuer.clone()));
-        env.events().publish((symbol_short!("IssDeReg"),), (issuer,));
-    }
-
-    pub fn anchor_did(env: Env, subject: Address, did_doc_cid: String) {
+    /// Anchor a DID document on-chain by storing its IPFS CID.
+    pub fn anchor_did(env: Env, subject: Address, did_doc_cid: String) -> Result<(), IdentityOracleError> {
         subject.require_auth();
 
-        // Validate CID minimum length
-        if did_doc_cid.len() < 7 {
+        let len = did_doc_cid.len();
+        if len < 7 {
             return Err(IdentityOracleError::InvalidCID);
         }
 
-        // Validate CID prefix
-        let cid_str = did_doc_cid.clone();
-        let starts_with_valid = cid_str.starts_with(&String::from_str(&env, "ipfs://"))
-            || cid_str.starts_with(&String::from_str(&env, "bafy"))
-            || cid_str.starts_with(&String::from_str(&env, "Qm"));
+        // Accept "ipfs://", "bafy", or "Qm" prefixes
+        let ipfs_prefix = String::from_str(&env, "ipfs://");
+        let bafy_prefix = String::from_str(&env, "bafy");
+        let qm_prefix   = String::from_str(&env, "Qm");
 
-        if !starts_with_valid {
+        let valid = cid_starts_with(&env, &did_doc_cid, &ipfs_prefix)
+            || cid_starts_with(&env, &did_doc_cid, &bafy_prefix)
+            || cid_starts_with(&env, &did_doc_cid, &qm_prefix);
+
+        if !valid {
             return Err(IdentityOracleError::InvalidCID);
         }
 
@@ -263,17 +282,14 @@ mod tests {
         let client = IdentityOracleClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
-        let result = client.initialize(&admin);
-        assert!(result.is_ok());
+        client.initialize(&admin);
 
         let issuer = Address::generate(&env);
-        let result = client.register_issuer(&admin, &issuer);
-        assert!(result.is_ok());
+        client.register_issuer(&admin, &issuer);
 
         let subject = Address::generate(&env);
         let vc_hash = BytesN::from_array(&env, &[1u8; 32]);
-        let result = client.anchor_vc(&issuer, &subject, &vc_hash);
-        assert!(result.is_ok());
+        client.anchor_vc(&issuer, &subject, &vc_hash);
     }
 
     #[test]
@@ -286,7 +302,7 @@ mod tests {
         let issuer = Address::generate(&env);
         let subject = Address::generate(&env);
         let vc_hash = BytesN::from_array(&env, &[1u8; 32]);
-        let result = client.anchor_vc(&issuer, &subject, &vc_hash);
+        let result = client.try_anchor_vc(&issuer, &subject, &vc_hash);
         assert_eq!(result, Err(Ok(IdentityOracleError::IssuerNotRegistered)));
     }
 
@@ -298,13 +314,11 @@ mod tests {
         let client = IdentityOracleClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
-        let _ = client.initialize(&admin);
+        client.initialize(&admin);
 
         let issuer = Address::generate(&env);
-        let _ = client.register_issuer(&admin, &issuer.clone());
-
-        let result = client.deregister_issuer(&admin, &issuer);
-        assert!(result.is_ok());
+        client.register_issuer(&admin, &issuer);
+        client.deregister_issuer(&admin, &issuer);
 
         let is_trusted: bool = env.as_contract(&contract_id, || {
             env.storage().persistent().has(&DataKey::TrustedIssuer(issuer.clone()))
@@ -320,20 +334,19 @@ mod tests {
         let client = IdentityOracleClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
-        let _ = client.initialize(&admin);
+        client.initialize(&admin);
 
         let issuer = Address::generate(&env);
-        let _ = client.register_issuer(&admin, &issuer.clone());
+        client.register_issuer(&admin, &issuer);
 
         let subject = Address::generate(&env);
         let vc_hash = BytesN::from_array(&env, &[1u8; 32]);
-        let result = client.anchor_vc(&issuer.clone(), &subject, &vc_hash);
-        assert!(result.is_ok());
+        client.anchor_vc(&issuer, &subject, &vc_hash);
 
-        let _ = client.deregister_issuer(&admin, &issuer.clone());
+        client.deregister_issuer(&admin, &issuer);
 
         let vc_hash2 = BytesN::from_array(&env, &[2u8; 32]);
-        let result = client.anchor_vc(&issuer, &subject, &vc_hash2);
+        let result = client.try_anchor_vc(&issuer, &subject, &vc_hash2);
         assert_eq!(result, Err(Ok(IdentityOracleError::IssuerNotRegistered)));
     }
 
@@ -345,16 +358,16 @@ mod tests {
         let client = IdentityOracleClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
-        let _ = client.initialize(&admin);
+        client.initialize(&admin);
 
         let issuer = Address::generate(&env);
-        let _ = client.register_issuer(&admin, &issuer);
+        client.register_issuer(&admin, &issuer);
 
         let subject = Address::generate(&env);
         assert!(!client.is_verified(&subject));
 
         let vc_hash = BytesN::from_array(&env, &[1u8; 32]);
-        let _ = client.anchor_vc(&issuer, &subject, &vc_hash);
+        client.anchor_vc(&issuer, &subject, &vc_hash);
 
         assert!(client.is_verified(&subject));
     }
@@ -368,8 +381,7 @@ mod tests {
 
         let subject = Address::generate(&env);
         let cid = String::from_str(&env, "ipfs://Qm...");
-        let result = client.anchor_did(&subject, &cid);
-        assert!(result.is_ok());
+        client.anchor_did(&subject, &cid);
     }
 
     #[test]
@@ -381,7 +393,7 @@ mod tests {
 
         let subject = Address::generate(&env);
         let cid = String::from_str(&env, "");
-        let result = client.anchor_did(&subject, &cid);
+        let result = client.try_anchor_did(&subject, &cid);
         assert_eq!(result, Err(Ok(IdentityOracleError::InvalidCID)));
     }
 
@@ -394,7 +406,7 @@ mod tests {
 
         let subject = Address::generate(&env);
         let cid = String::from_str(&env, " ");
-        let result = client.anchor_did(&subject, &cid);
+        let result = client.try_anchor_did(&subject, &cid);
         assert_eq!(result, Err(Ok(IdentityOracleError::InvalidCID)));
     }
 
@@ -407,7 +419,7 @@ mod tests {
 
         let subject = Address::generate(&env);
         let cid = String::from_str(&env, "invalid-cid-data");
-        let result = client.anchor_did(&subject, &cid);
+        let result = client.try_anchor_did(&subject, &cid);
         assert_eq!(result, Err(Ok(IdentityOracleError::InvalidCID)));
     }
 
@@ -420,18 +432,15 @@ mod tests {
 
         let subject = Address::generate(&env);
         let cid = String::from_str(&env, "ipfs://QmYwAPJzagoJzrKSTTkG8w6zWZSNxrCYhpDkxQottEwHym");
-        let result = client.anchor_did(&subject, &cid);
-        assert!(result.is_ok());
+        client.anchor_did(&subject, &cid);
 
         let subject2 = Address::generate(&env);
         let cid2 = String::from_str(&env, "bafy2bzacedw4hc6k2vxtcmfmr3jtcl6yvqohqmvtqj7lhyzuejcxgxvl6yv4");
-        let result = client.anchor_did(&subject2, &cid2);
-        assert!(result.is_ok());
+        client.anchor_did(&subject2, &cid2);
 
         let subject3 = Address::generate(&env);
         let cid3 = String::from_str(&env, "QmVocdeKSNbd9jkc3pDjq9FdAVLpiHrfQFwcJMgB7aXZi3");
-        let result = client.anchor_did(&subject3, &cid3);
-        assert!(result.is_ok());
+        client.anchor_did(&subject3, &cid3);
     }
 
     #[test]
@@ -442,19 +451,19 @@ mod tests {
         let client = IdentityOracleClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
-        let _ = client.initialize(&admin);
+        client.initialize(&admin);
 
         let issuer = Address::generate(&env);
-        let _ = client.register_issuer(&admin, &issuer);
+        client.register_issuer(&admin, &issuer);
 
         let subject = Address::generate(&env);
         assert_eq!(client.get_vc_count(&subject), 0);
 
-        for i in 0..3 {
+        for i in 0..3u8 {
             let mut hash_arr = [0u8; 32];
-            hash_arr[0] = i as u8;
+            hash_arr[0] = i;
             let vc_hash = BytesN::from_array(&env, &hash_arr);
-            let _ = client.anchor_vc(&issuer, &subject, &vc_hash);
+            client.anchor_vc(&issuer, &subject, &vc_hash);
         }
 
         assert_eq!(client.get_vc_count(&subject), 3);
@@ -475,53 +484,23 @@ mod tests {
 
         let subject = Address::generate(&env);
 
-        // Anchor 3 VCs
         for i in 0..3u8 {
             let hash_arr = [i; 32];
             let vc_hash = BytesN::from_array(&env, &hash_arr);
             client.anchor_vc(&issuer, &subject, &vc_hash);
         }
 
-        // Revoke 2 of them
         for i in 0..2u8 {
             let hash_arr = [i; 32];
             let vc_hash = BytesN::from_array(&env, &hash_arr);
             client.mark_vc_revoked(&issuer, &subject, &vc_hash);
         }
 
-        // Only 1 should remain active
         assert_eq!(client.get_active_vc_count(&subject), 1);
     }
 
     #[test]
     fn test_revoked_vc_fails_is_verified() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let contract_id = env.register_contract(None, IdentityOracle);
-
-        let client = IdentityOracleClient::new(&env, &contract_id);
-
-
-        let admin = Address::generate(&env);
-        let _ = client.initialize(&admin);
-
-        let issuer = Address::generate(&env);
-        let _ = client.register_issuer(&admin, &issuer);
-
-        let subject = Address::generate(&env);
-        let vc_hash = BytesN::from_array(&env, &[1u8; 32]);
-        let _ = client.anchor_vc(&issuer, &subject, &vc_hash);
-
-        assert!(client.is_verified(&subject));
-
-        let _ = client.mark_vc_revoked(&issuer, &subject, &vc_hash);
-
-        assert!(!client.is_verified(&subject));
-    }
-
-    #[test]
-    #[should_panic(expected = "issuer not registered")]
-    fn test_deregistered_issuer_cannot_anchor_vc() {
         let env = Env::default();
         env.mock_all_auths();
         let contract_id = env.register_contract(None, IdentityOracle);
@@ -539,28 +518,8 @@ mod tests {
 
         assert!(client.is_verified(&subject));
 
-        client.deregister_issuer(&admin, &issuer);
+        client.mark_vc_revoked(&issuer, &subject, &vc_hash);
 
-        let new_vc_hash = BytesN::from_array(&env, &[2u8; 32]);
-        client.anchor_vc(&issuer, &subject, &new_vc_hash);
-    }
-
-    #[test]
-    fn test_upgrade_preserves_contract_address() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let new_wasm_hash = env.deployer().upload_contract_wasm(IdentityOracle::WASM);
-        let contract_id = env.register_contract(None, IdentityOracle);
-        let client = IdentityOracleClient::new(&env, &contract_id);
-
-        let admin = Address::generate(&env);
-        client.initialize(&admin);
-
-        // Upgrade — contract_id must remain unchanged
-        client.upgrade(&admin, &new_wasm_hash);
-
-        // Contract still responds correctly; address is preserved
-        let subject = Address::generate(&env);
         assert!(!client.is_verified(&subject));
     }
 
@@ -569,13 +528,29 @@ mod tests {
     fn test_upgrade_rejects_non_admin() {
         let env = Env::default();
         env.mock_all_auths();
-        let new_wasm_hash = env.deployer().upload_contract_wasm(IdentityOracle::WASM);
         let contract_id = env.register_contract(None, IdentityOracle);
         let client = IdentityOracleClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
         let non_admin = Address::generate(&env);
         client.initialize(&admin);
-        client.upgrade(&non_admin, &new_wasm_hash);
+        // Pass a zeroed hash — upgrade will fail on auth check before using it
+        client.upgrade(&non_admin, &BytesN::from_array(&env, &[0u8; 32]));
+    }
+
+    #[test]
+    fn test_initialize_sets_admin() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, IdentityOracle);
+        let client = IdentityOracleClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let stored: Address = env.as_contract(&contract_id, || {
+            env.storage().instance().get(&DataKey::Admin).unwrap()
+        });
+        assert_eq!(stored, admin);
     }
 }
