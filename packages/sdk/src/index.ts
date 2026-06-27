@@ -319,8 +319,8 @@ export class StellarDIDCreditSDK {
 
 /** Thrown when get_score is called for an address that has no computed score yet. */
 export class ScoreNotComputedError extends Error {
-  constructor(address: string) {
-    super(`No score computed for address: ${address}`);
+  constructor(address?: string) {
+    super(address ? `No score computed for address: ${address}` : "Score has not been computed");
     this.name = "ScoreNotComputedError";
   }
 }

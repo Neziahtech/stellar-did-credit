@@ -13,5 +13,8 @@ dist/
 .DS_Store
 Thumbs.db
 
+# AI agent config (local only — do not commit)
+.claude/
+
 # Deployment artifacts
 # deployments.testnet.json  (tracked in repo)

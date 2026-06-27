@@ -367,9 +367,10 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and 
 
 1. Browse [open issues](https://github.com/cybermax4200/stellar-did-credit/issues) — look for `good first issue` to start
 2. Comment on the issue to signal you're working on it
-3. Fork the repo and create a branch: `git checkout -b feat/your-feature`
-4. Write your code with tests — `cargo test --workspace` must pass
-5. Open a pull request referencing the issue number
+3. **Fork** the repo on GitHub, then clone your fork: `git clone https://github.com/YOUR_USERNAME/stellar-did-credit`
+4. Create a branch: `git checkout -b feat/your-feature`
+5. Write your code with tests — `cargo test --workspace` must pass
+6. Push to your fork and open a pull request — make sure the base repository is set to **`cybermax4200/stellar-did-credit`**, not your own fork
 
 ### Issue complexity levels
 
