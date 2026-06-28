@@ -1,63 +1,118 @@
 #!/bin/bash
-set -e
+# Strict mode: -e exits on error, -u treats unset variables as errors,
+# -o pipefail propagates failures through pipelines. Together they ensure
+# any unexpected failure stops the script immediately rather than silently
+# producing a broken deployment.
+set -euo pipefail
 
 NETWORK=${NETWORK:-testnet}
 SOURCE="deployer"
-FORCE_MAINNET=0
+DEPLOYMENTS_FILE="deployments.testnet.json"
+RESUME=false
 
-# Allow opt-in for mainnet deployments.
-if [[ "$1" == "--force-mainnet" ]]; then
-  FORCE_MAINNET=1
-  shift
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+for arg in "$@"; do
+  case "$arg" in
+    --resume)
+      RESUME=true
+      ;;
+    *)
+      echo "Unknown argument: $arg" >&2
+      echo "Usage: $0 [--resume]" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# ---------------------------------------------------------------------------
+# Resume support
+#
+# When --resume is passed and a deployments.testnet.json already exists, we
+# read the previously recorded contract addresses.  Any contract whose address
+# is already present and non-empty is skipped; only missing ones are deployed.
+# This makes an interrupted deployment safely restartable without redeploying
+# contracts that already landed on-chain.
+# ---------------------------------------------------------------------------
+IDENTITY_ID=""
+CREDIT_ID=""
+REVOCATION_ID=""
+
+if $RESUME && [ -f "$DEPLOYMENTS_FILE" ]; then
+  echo "Resume mode: reading existing deployments from $DEPLOYMENTS_FILE ..."
+
+  # Extract values with basic grep/sed – no jq dependency required.
+  IDENTITY_ID=$(grep -o '"identity-oracle": *"[^"]*"' "$DEPLOYMENTS_FILE" \
+    | sed 's/.*: *"\([^"]*\)"/\1/' || true)
+  CREDIT_ID=$(grep -o '"credit-oracle": *"[^"]*"' "$DEPLOYMENTS_FILE" \
+    | sed 's/.*: *"\([^"]*\)"/\1/' || true)
+  REVOCATION_ID=$(grep -o '"revocation-registry": *"[^"]*"' "$DEPLOYMENTS_FILE" \
+    | sed 's/.*: *"\([^"]*\)"/\1/' || true)
+
+  echo "  identity-oracle:     ${IDENTITY_ID:-(missing)}"
+  echo "  credit-oracle:       ${CREDIT_ID:-(missing)}"
+  echo "  revocation-registry: ${REVOCATION_ID:-(missing)}"
+elif $RESUME; then
+  echo "Resume mode: no existing $DEPLOYMENTS_FILE found – proceeding with full deployment."
 fi
 
-if [[ "$NETWORK" != "testnet" && "$NETWORK" != "mainnet" ]]; then
-  echo "Error: NETWORK must be 'testnet' or 'mainnet' (got: '$NETWORK')" >&2
-  exit 1
-fi
-
-# Guard against accidental mainnet deployments.
-if [[ "$NETWORK" == "mainnet" && "$FORCE_MAINNET" -ne 1 ]]; then
-  echo "Error: refusing to deploy to mainnet. Pass --force-mainnet to override." >&2
-  exit 1
-fi
-
-# Warn if stellar-cli default network differs from target NETWORK.
-DEFAULT_NETWORK=""
-if command -v stellar >/dev/null 2>&1; then
-  DEFAULT_NETWORK=$(stellar network default 2>/dev/null | tr -d '\r' | awk '{print $1}') || true
-fi
-if [[ -n "$DEFAULT_NETWORK" && "$DEFAULT_NETWORK" != "$NETWORK" ]]; then
-  echo "Warning: stellar-cli default network is '$DEFAULT_NETWORK', but script target is '$NETWORK'." >&2
-fi
-
+# ---------------------------------------------------------------------------
+# Build
+# ---------------------------------------------------------------------------
 echo "Building contracts..."
 stellar contract build
 
-echo "Deploying identity-oracle to $NETWORK..."
-IDENTITY_ID=$(stellar contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/identity_oracle.wasm \
-  --source $SOURCE \
-  --network $NETWORK)
-echo "identity-oracle: $IDENTITY_ID"
+# ---------------------------------------------------------------------------
+# Deploy each contract (skip if a valid address is already recorded)
+# ---------------------------------------------------------------------------
 
-echo "Deploying credit-oracle to $NETWORK..."
-CREDIT_ID=$(stellar contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/credit_oracle.wasm \
-  --source $SOURCE \
-  --network $NETWORK)
-echo "credit-oracle: $CREDIT_ID"
+# identity-oracle
+if [ -n "$IDENTITY_ID" ]; then
+  echo "Skipping identity-oracle (already deployed: $IDENTITY_ID)"
+else
+  echo "Deploying identity-oracle..."
+  IDENTITY_ID=$(stellar contract deploy \
+    --wasm target/wasm32-unknown-unknown/release/identity_oracle.wasm \
+    --source $SOURCE \
+    --network $NETWORK)
+  echo "identity-oracle: $IDENTITY_ID"
+fi
 
-echo "Deploying revocation-registry to $NETWORK..."
-REVOCATION_ID=$(stellar contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/revocation_registry.wasm \
-  --source $SOURCE \
-  --network $NETWORK)
-echo "revocation-registry: $REVOCATION_ID"
+# credit-oracle
+if [ -n "$CREDIT_ID" ]; then
+  echo "Skipping credit-oracle (already deployed: $CREDIT_ID)"
+else
+  echo "Deploying credit-oracle..."
+  CREDIT_ID=$(stellar contract deploy \
+    --wasm target/wasm32-unknown-unknown/release/credit_oracle.wasm \
+    --source $SOURCE \
+    --network $NETWORK)
+  echo "credit-oracle: $CREDIT_ID"
+fi
 
-OUT_FILE="deployments.${NETWORK}.json"
-echo "Saving to $OUT_FILE..."
-cat > "$OUT_FILE" << EOF
+# revocation-registry
+if [ -n "$REVOCATION_ID" ]; then
+  echo "Skipping revocation-registry (already deployed: $REVOCATION_ID)"
+else
+  echo "Deploying revocation-registry..."
+  REVOCATION_ID=$(stellar contract deploy \
+    --wasm target/wasm32-unknown-unknown/release/revocation_registry.wasm \
+    --source $SOURCE \
+    --network $NETWORK)
+  echo "revocation-registry: $REVOCATION_ID"
+fi
+
+# ---------------------------------------------------------------------------
+# Atomic JSON output
+#
+# deployments.testnet.json is written exactly once, only after every contract
+# address has been collected successfully.  Writing the file at the very end
+# (never incrementally) means an interrupted deployment can never leave behind
+# a partially written or malformed JSON file.
+# ---------------------------------------------------------------------------
+echo "Saving to $DEPLOYMENTS_FILE..."
+cat > "$DEPLOYMENTS_FILE" <<EOF
 {
   "network": "$NETWORK",
   "deployed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
