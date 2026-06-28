@@ -164,6 +164,15 @@ impl IdentityOracle {
     }
 
     /// Anchor a DID document on-chain by storing its IPFS CID.
+    ///
+    /// **Authentication:** The `subject` must provide a valid signature.
+    ///
+    /// **Overwrite behavior:** This function is idempotent — calling it multiple times with
+    /// different CIDs will silently replace the previous value in storage. Each call emits
+    /// a `DIDAnch` event. DID documents are considered **mutable** in this protocol;
+    /// subjects may update their DID document (e.g., to rotate keys or add service
+    /// endpoints) by calling this function again. Consumers should always resolve the
+    /// current CID from storage rather than relying on historical events.
     pub fn anchor_did(env: Env, subject: Address, did_doc_cid: String) -> Result<(), IdentityOracleError> {
         subject.require_auth();
 
@@ -585,6 +594,28 @@ mod tests {
         let subject3 = Address::generate(&env);
         let cid3 = String::from_str(&env, "QmVocdeKSNbd9jkc3pDjq9FdAVLpiHrfQFwcJMgB7aXZi3");
         client.anchor_did(&subject3, &cid3);
+    }
+
+    #[test]
+    fn test_anchor_did_overwrite() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, IdentityOracle);
+        let client = IdentityOracleClient::new(&env, &contract_id);
+
+        let subject = Address::generate(&env);
+        let cid_first = String::from_str(&env, "ipfs://QmFirstCID123456789");
+        client.anchor_did(&subject, &cid_first);
+
+        // Second call with different CID overwrites the first
+        let cid_second = String::from_str(&env, "ipfs://QmSecondCID987654321");
+        client.anchor_did(&subject, &cid_second);
+
+        // Verify storage contains the second CID
+        let stored: String = env.as_contract(&contract_id, || {
+            env.storage().persistent().get(&DataKey::DIDDocument(subject.clone())).unwrap()
+        });
+        assert_eq!(stored, cid_second);
     }
 
     #[test]
