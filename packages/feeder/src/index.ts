@@ -8,12 +8,12 @@
  *   4. Submits update_tx_stats(feeder, subject, stats) to the credit-oracle.
  *
  * Usage (CLI):
- *   FEEDER_SECRET=S... SUBJECTS=G1...,G2... \
+ *   FEEDER_SECRET=YOUR_STELLAR_SECRET_KEY SUBJECTS=G1...,G2... \
  *   CREDIT_ORACLE_ID=C... IDENTITY_ORACLE_ID=C... \
  *   npm start
  *
  * Required environment variables:
- *   FEEDER_SECRET        — Stellar secret key of a registered feeder (S...)
+ *   FEEDER_SECRET        — Stellar secret key of a registered feeder (starts with S)
  *   SUBJECTS             — Comma-separated list of subject G... addresses
  *   CREDIT_ORACLE_ID     — Contract address of the credit-oracle
  *   IDENTITY_ORACLE_ID   — Contract address of the identity-oracle
@@ -323,7 +323,7 @@ export async function waitForConfirmation(
  *   pollIntervalMs: 3_600_000,
  * };
  *
- * const feeder = new Feeder(config, Keypair.fromSecret("S..."));
+ * const feeder = new Feeder(config, Keypair.fromSecret("YOUR_STELLAR_SECRET_KEY"));
  * const stop = feeder.start();   // begins polling; call stop() to halt
  * ```
  */

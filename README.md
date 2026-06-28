@@ -357,7 +357,7 @@ pnpm install
 ### Run
 
 ```bash
-FEEDER_SECRET=S... \
+FEEDER_SECRET=YOUR_STELLAR_SECRET_KEY \
 SUBJECTS=GSUBJECT1...,GSUBJECT2... \
 CREDIT_ORACLE_ID=C... \
 IDENTITY_ORACLE_ID=C... \
@@ -383,7 +383,7 @@ const config: FeederConfig = {
   pollIntervalMs: 3_600_000,
 };
 
-const feeder = new Feeder(config, Keypair.fromSecret("S..."));
+const feeder = new Feeder(config, Keypair.fromSecret("YOUR_STELLAR_SECRET_KEY"));
 const stop = feeder.start(); // begins polling; call stop() to halt
 ```
 

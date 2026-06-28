@@ -266,7 +266,7 @@ A complete, runnable issuer script is in [`packages/issuer-example/`](../package
 ```bash
 cd packages/issuer-example
 npm install
-ISSUER_SECRET=S... npm run issue -- --subject GSUBJECT... --kyc-level basic --country NG
+ISSUER_SECRET=YOUR_STELLAR_SECRET_KEY npm run issue -- --subject GSUBJECT... --kyc-level basic --country NG
 ```
 
 See [`packages/issuer-example/README.md`](../packages/issuer-example/README.md) for full setup instructions.
