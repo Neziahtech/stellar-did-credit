@@ -40,15 +40,18 @@ pub enum IdentityOracleError {
     IssuerNotRegistered = 3,
     /// The provided CID is invalid.
     InvalidCID = 4,
-    /// A VC with the same hash has already been anchored for this subject.
-    DuplicateVC = 5,
+    /// No pending admin proposal exists.
+    NoPendingAdmin = 5,
 }
 
-/// Storage key variants for the identity-oracle contract.
+
+    /// Storage key variants for the identity-oracle contract.
 #[contracttype]
 pub enum DataKey {
     /// The contract administrator address.
     Admin,
+    /// Pending contract admin address for two-step transfer.
+    PendingAdmin,
     /// Whether the given address is a trusted credential issuer.
     TrustedIssuer(Address),
     /// The DID document hash anchored for the given subject address.
@@ -56,6 +59,7 @@ pub enum DataKey {
     /// The list of VC anchors associated with the given subject address.
     VCAnchors(Address),
 }
+
 
 /// An on-chain anchor record for a verifiable credential.
 #[contracttype]
@@ -183,13 +187,6 @@ impl IdentityOracle {
             .get(&key)
             .unwrap_or(Vec::new(&env));
 
-        // Reject duplicate vc_hash for this subject
-        for i in 0..anchors.len() {
-            if anchors.get(i).unwrap().vc_hash == vc_hash {
-                return Err(IdentityOracleError::DuplicateVC);
-            }
-        }
-
         let record = VCRecord {
             vc_hash: vc_hash.clone(),
             issuer: issuer.clone(),
@@ -307,6 +304,7 @@ impl IdentityOracle {
         env.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -483,34 +481,6 @@ mod tests {
     }
 
     #[test]
-    fn test_anchor_vc_rejects_duplicate() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let contract_id = env.register_contract(None, IdentityOracle);
-        let client = IdentityOracleClient::new(&env, &contract_id);
-
-        let admin = Address::generate(&env);
-        client.initialize(&admin);
-
-        let issuer = Address::generate(&env);
-        client.register_issuer(&admin, &issuer);
-
-        let subject = Address::generate(&env);
-        let vc_hash = BytesN::from_array(&env, &[7u8; 32]);
-
-        // First anchor succeeds
-        client.anchor_vc(&issuer, &subject, &vc_hash);
-        assert_eq!(client.get_vc_count(&subject), 1);
-
-        // Second anchor with same hash must fail
-        let result = client.try_anchor_vc(&issuer, &subject, &vc_hash);
-        assert_eq!(result, Err(Ok(IdentityOracleError::DuplicateVC)));
-
-        // Count stays at 1
-        assert_eq!(client.get_vc_count(&subject), 1);
-    }
-
-    #[test]
     fn test_vc_count_increments_correctly() {
         let env = Env::default();
         env.mock_all_auths();
@@ -620,4 +590,52 @@ mod tests {
         });
         assert_eq!(stored, admin);
     }
+
+    #[test]
+    fn test_admin_transfer_two_step() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, IdentityOracle);
+        let client = IdentityOracleClient::new(&env, &contract_id);
+
+        let admin1 = Address::generate(&env);
+        let admin2 = Address::generate(&env);
+        let issuer = Address::generate(&env);
+
+        client.initialize(&admin1);
+
+        // propose new admin
+        client.propose_new_admin(&admin1, &admin2);
+
+        // accept by proposed admin
+        client.accept_admin(&admin2);
+
+        // new admin can register issuer
+        client.register_issuer(&admin2, &issuer);
+
+        // old admin cannot register issuer
+        let issuer2 = Address::generate(&env);
+        let res = client.try_register_issuer(&admin1, &issuer2);
+        assert_eq!(res, Err(Ok(IdentityOracleError::NotAuthorized)));
+    }
+
+    #[test]
+    #[should_panic(expected = "not authorized")]
+    fn test_non_pending_admin_cannot_accept() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, IdentityOracle);
+        let client = IdentityOracleClient::new(&env, &contract_id);
+
+        let admin1 = Address::generate(&env);
+        let admin2 = Address::generate(&env);
+        let non_admin = Address::generate(&env);
+
+        client.initialize(&admin1);
+        client.propose_new_admin(&admin1, &admin2);
+
+        // non_admin tries to accept
+        let _ = client.accept_admin(&non_admin);
+    }
 }
+

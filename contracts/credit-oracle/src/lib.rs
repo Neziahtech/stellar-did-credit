@@ -44,13 +44,19 @@ pub enum CreditOracleError {
     LenderNotRegistered = 4,
     /// Proposed weights do not sum to 100.
     InvalidWeights = 5,
+    /// No pending admin proposal exists.
+    NoPendingAdmin = 6,
 }
+
 
 /// Storage keys for the credit oracle contract
 #[contracttype]
 pub enum DataKey {
     /// Contract administrator address
     Admin,
+    /// Pending contract admin address for two-step transfer
+    PendingAdmin,
+
     /// Global configuration
     Config,
     /// Trusted feeder address authorized to update transaction stats
@@ -392,6 +398,34 @@ impl CreditOracle {
         env.storage().instance().get(&DataKey::PendingWeights)
     }
 
+    /// Propose a new contract admin (two-step admin transfer).
+    pub fn propose_new_admin(env: Env, current_admin: Address, new_admin: Address) -> Result<(), CreditOracleError> {
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        if current_admin != stored_admin {
+            return Err(CreditOracleError::NotAuthorized);
+        }
+        current_admin.require_auth();
+        env.storage().instance().set(&DataKey::PendingAdmin, &new_admin);
+        Ok(())
+    }
+
+    /// Accept a proposed admin role (two-step admin transfer).
+    pub fn accept_admin(env: Env, new_admin: Address) -> Result<(), CreditOracleError> {
+        let pending: Option<Address> = env.storage().instance().get(&DataKey::PendingAdmin);
+        match pending {
+            Some(p) => {
+                if p != new_admin {
+                    panic!("not authorized");
+                }
+            }
+            None => return Err(CreditOracleError::NoPendingAdmin),
+        }
+        new_admin.require_auth();
+        env.storage().instance().set(&DataKey::Admin, &new_admin);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        Ok(())
+    }
+
     /// Upgrade the contract WASM in-place, preserving address and all stored state.
     ///
     /// Auth: admin only — verified via `require_admin`.
@@ -404,10 +438,13 @@ impl CreditOracle {
     }
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use soroban_sdk::testutils::{Address as _, Ledger as _};
+
 
     #[test]
     fn test_default_weights_sum_to_100() {
@@ -734,5 +771,195 @@ mod tests {
         client.initialize(&admin);
         client.upgrade(&non_admin, &BytesN::from_array(&env, &[0u8; 32]));
     }
+
+    #[test]
+    fn test_admin_transfer_two_step() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, CreditOracle);
+        let client = CreditOracleClient::new(&env, &contract_id);
+
+        let admin1 = Address::generate(&env);
+        let admin2 = Address::generate(&env);
+        let feeder = Address::generate(&env);
+
+        client.initialize(&admin1);
+
+        client.propose_new_admin(&admin1, &admin2);
+        client.accept_admin(&admin2);
+
+        // new admin can register feeder
+        client.register_feeder(&admin2, &feeder);
+
+        // old admin cannot register feeder
+        let feeder2 = Address::generate(&env);
+        let res = client.try_register_feeder(&admin1, &feeder2);
+        assert_eq!(res, Err(Ok(CreditOracleError::NotAuthorized)));
+    }
+
+    #[test]
+    #[should_panic(expected = "not authorized")]
+    fn test_non_pending_admin_cannot_accept() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, CreditOracle);
+        let client = CreditOracleClient::new(&env, &contract_id);
+
+        let admin1 = Address::generate(&env);
+        let admin2 = Address::generate(&env);
+        let non_admin = Address::generate(&env);
+
+        client.initialize(&admin1);
+        client.propose_new_admin(&admin1, &admin2);
+
+        let _ = client.accept_admin(&non_admin);
+    }
+
+    fn setup_and_compute_score(
+        vc_count: u32,
+        volume_30d: i64,
+        on_time_count: u32,
+        total_count: u32,
+        weights: ScoringWeights,
+    ) -> u32 {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, CreditOracle);
+        let client = CreditOracleClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let feeder = Address::generate(&env);
+        let lender = Address::generate(&env);
+        let subject = Address::generate(&env);
+
+        client.initialize(&admin);
+        client.register_feeder(&admin, &feeder);
+        client.register_lender(&admin, &lender);
+
+        // Apply weights immediately by setting pending weights and jumping beyond timelock.
+        client.propose_weights(&weights);
+        let jump = TIMELOCK_LEDGERS + 2;
+        env.as_contract(&contract_id, || {
+            env.storage().instance().extend_ttl(jump, jump);
+        });
+        env.ledger().set_sequence_number(env.ledger().sequence() + jump);
+        client.apply_weights();
+
+        client.set_vc_count(&feeder, &subject, &vc_count);
+        client.update_tx_stats(
+            &feeder,
+            &subject,
+            &TxStats {
+                volume_30d: volume_30d as i128,
+                tx_count_30d: 0,
+                avg_counterparties: 0,
+            },
+        );
+
+        // Record repayments to build the repayment counters.
+        // Use exact counts instead of relying on randomness for test stability.
+        for _ in 0..on_time_count {
+            client.record_repayment(&lender, &subject, &0, &true);
+        }
+        let late = total_count.saturating_sub(on_time_count);
+        for _ in 0..late {
+            client.record_repayment(&lender, &subject, &0, &false);
+        }
+
+        client.compute_score(&subject)
+    }
+
+    proptest! {
+        #[test]
+        fn proptest_score_always_in_range(
+            vc_count in any::<u32>(),
+            volume_30d in any::<i64>(),
+            on_time in any::<u32>(),
+            total in any::<u32>(),
+        ) {
+            // Ensure a valid repayment state: on_time <= total.
+            let total_count = total;
+            let on_time_count = on_time.min(total_count);
+
+            let weights = ScoringWeights { vc_weight: 40, tx_weight: 30, repayment_weight: 30 };
+            let score = setup_and_compute_score(
+                vc_count,
+                volume_30d,
+                on_time_count,
+                total_count,
+                weights,
+            );
+            prop_assert!(score >= MIN_SCORE && score <= MAX_SCORE);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn proptest_score_monotone_on_repayment(
+            vc_count in 0u32..100u32,
+            volume_30d in any::<i64>(),
+            total1 in 1u32..500u32,
+            on_time1 in 0u32..500u32,
+            extra in 0u32..500u32,
+        ) {
+            let on_time1 = on_time1.min(total1);
+            let total2 = total1 + 1; // keep close to maximize boundary coverage
+
+            // Construct on-time ratio that is >= ratio1 after truncation effects.
+            // We do it via counts: target ratio2 uses on_time2 = on_time1*(total2)/total1 rounded up.
+            let on_time2 = ((on_time1 as u128) * (total2 as u128) + (total1 as u128) - 1) / (total1 as u128);
+            let on_time2 = on_time2.min(total2 as u128) as u32;
+
+            let weights = ScoringWeights { vc_weight: 40, tx_weight: 30, repayment_weight: 30 };
+
+            let score1 = setup_and_compute_score(
+                vc_count,
+                volume_30d,
+                on_time1,
+                total1,
+                weights.clone(),
+            );
+
+            let score2 = setup_and_compute_score(
+                vc_count,
+                volume_30d,
+                on_time2,
+                total2,
+                weights,
+            );
+
+            prop_assert!(score2 >= score1);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn proptest_no_panic_on_any_valid_weights(
+            a in 0u32..=100u32,
+            b in 0u32..=100u32,
+            c in 0u32..=100u32,
+            vc_count in any::<u32>(),
+            volume_30d in any::<i64>(),
+            on_time in any::<u32>(),
+            total in any::<u32>(),
+        ) {
+            prop_assume!(a + b + c == 100);
+
+            let on_time_count = on_time.min(total);
+            let weights = ScoringWeights { vc_weight: a, tx_weight: b, repayment_weight: c };
+
+            // Should never panic for valid weights; also should always be bounded.
+            let score = setup_and_compute_score(
+                vc_count,
+                volume_30d,
+                on_time_count,
+                total,
+                weights,
+            );
+            prop_assert!(score >= MIN_SCORE && score <= MAX_SCORE);
+        }
+    }
 }
+
+
 
