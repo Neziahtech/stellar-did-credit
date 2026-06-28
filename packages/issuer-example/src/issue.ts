@@ -2,10 +2,10 @@
  * Minimal issuer script for the stellar-did-credit protocol.
  *
  * Usage:
- *   ISSUER_SECRET=S... npm run issue -- --subject GSUBJECT... --kyc-level basic --country NG
+ *   ISSUER_SECRET=YOUR_STELLAR_SECRET_KEY npm run issue -- --subject GSUBJECT... --kyc-level basic --country NG
  *
  * Required environment variables:
- *   ISSUER_SECRET        — Stellar secret key of a registered issuer (S...)
+ *   ISSUER_SECRET        — Stellar secret key of a registered issuer (starts with S)
  *   IDENTITY_ORACLE_ID   — Contract address of the identity-oracle
  *   CREDIT_ORACLE_ID     — Contract address of the credit-oracle
  *   REVOCATION_REG_ID    — Contract address of the revocation-registry
