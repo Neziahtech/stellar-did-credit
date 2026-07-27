@@ -5,9 +5,59 @@ mod tests {
     use identity_oracle::{IdentityOracle, IdentityOracleClient};
     use revocation_registry::{RevocationRegistry, RevocationRegistryClient};
     use soroban_sdk::{
+        symbol_short,
         testutils::{Address as _, Ledger as _},
-        BytesN, Env, String,
+        BytesN, Env, String, Symbol, Val,
     };
+
+    #[test]
+    fn test_initialize_emits_init_event() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let identity_id = env.register_contract(None, IdentityOracle);
+        let credit_id = env.register_contract(None, CreditOracle);
+        let revocation_id = env.register_contract(None, RevocationRegistry);
+
+        let identity = IdentityOracleClient::new(&env, &identity_id);
+        let credit = CreditOracleClient::new(&env, &credit_id);
+        let revocation = RevocationRegistryClient::new(&env, &revocation_id);
+
+        let admin = soroban_sdk::Address::generate(&env);
+
+        // Initialize identity-oracle and verify Init event
+        identity.initialize(&admin);
+        let events = env.events().all();
+        let id_events: Vec<_> = events.iter().filter(|(id, _, _)| *id == identity_id).collect();
+        assert_eq!(id_events.len(), 1, "identity-oracle should emit 1 event");
+        let (_, topics, data) = &id_events[0];
+        assert_eq!(topics.len(), 1);
+        assert_eq!(topics.get(0).unwrap(), soroban_sdk::Val::from(Symbol::new(&env, "Initialized")));
+        let event_admin: soroban_sdk::Address = data.clone().unwrap();
+        assert_eq!(event_admin, admin, "Initialized event admin mismatch for identity-oracle");
+
+        // Initialize credit-oracle and verify Initialized event
+        credit.initialize(&admin);
+        let events = env.events().all();
+        let credit_events: Vec<_> = events.iter().filter(|(id, _, _)| *id == credit_id).collect();
+        assert_eq!(credit_events.len(), 1, "credit-oracle should emit 1 event");
+        let (_, topics, data) = &credit_events[0];
+        assert_eq!(topics.len(), 1);
+        assert_eq!(topics.get(0).unwrap(), soroban_sdk::Val::from(Symbol::new(&env, "Initialized")));
+        let event_admin: soroban_sdk::Address = data.clone().unwrap();
+        assert_eq!(event_admin, admin, "Initialized event admin mismatch for credit-oracle");
+
+        // Initialize revocation-registry and verify Initialized event
+        revocation.initialize(&admin);
+        let events = env.events().all();
+        let rev_events: Vec<_> = events.iter().filter(|(id, _, _)| *id == revocation_id).collect();
+        assert_eq!(rev_events.len(), 1, "revocation-registry should emit 1 event");
+        let (_, topics, data) = &rev_events[0];
+        assert_eq!(topics.len(), 1);
+        assert_eq!(topics.get(0).unwrap(), soroban_sdk::Val::from(Symbol::new(&env, "Initialized")));
+        let event_admin: soroban_sdk::Address = data.clone().unwrap();
+        assert_eq!(event_admin, admin, "Init event admin mismatch for revocation-registry");
+    }
 
     #[test]
     fn test_full_protocol_flow() {
@@ -183,7 +233,7 @@ mod tests {
             credit.record_repayment(&lender, &subject, &100_000_000i128, &true);
         }
         let initial_score = credit.compute_score(&subject);
-        assert!(initial_score > 300);
+        assert!(initial_score > 300, "expected initial_score > 300, got {}", initial_score);
 
         // 2. Revoke the VC on identity-oracle
         identity.mark_vc_revoked(&issuer, &subject, &vc_hash);
@@ -325,7 +375,7 @@ mod tests {
             vc_hashes.push_back(vc_hash);
         }
 
-        // 5. Assert is_verified is true (5 active VCs)
+// 5. Assert is_verified is true (5 active VCs)
         assert!(identity.is_verified(&subject));
 
         // 6. Assert get_total_vc_count returns 5
