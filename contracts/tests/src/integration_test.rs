@@ -10,7 +10,7 @@ mod tests {
     use soroban_sdk::{
         symbol_short,
         testutils::{Address as _, Events, Ledger as _},
-        BytesN, Env, String, Symbol, TryIntoVal, Val,
+        BytesN, Env, String, Symbol, TryIntoVal,
     };
 
     #[test]
@@ -35,8 +35,8 @@ mod tests {
         assert_eq!(id_events.len(), 1, "identity-oracle should emit 1 event");
         let (_, topics, data) = &id_events[0];
         assert_eq!(topics.len(), 1);
-        let topic_symbol: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
-        assert_eq!(topic_symbol, Symbol::new(&env, "Initialized"));
+        let topic0: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+        assert_eq!(topic0, Symbol::new(&env, "Initialized"));
         let event_admin: soroban_sdk::Address = data.clone().try_into_val(&env).unwrap();
         assert_eq!(event_admin, admin, "Initialized event admin mismatch for identity-oracle");
 
@@ -47,8 +47,8 @@ mod tests {
         assert_eq!(credit_events.len(), 1, "credit-oracle should emit 1 event");
         let (_, topics, data) = &credit_events[0];
         assert_eq!(topics.len(), 1);
-        let topic_symbol: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
-        assert_eq!(topic_symbol, Symbol::new(&env, "Initialized"));
+        let topic1: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+        assert_eq!(topic1, Symbol::new(&env, "Initialized"));
         let event_admin: soroban_sdk::Address = data.clone().try_into_val(&env).unwrap();
         assert_eq!(event_admin, admin, "Initialized event admin mismatch for credit-oracle");
 
@@ -59,8 +59,8 @@ mod tests {
         assert_eq!(rev_events.len(), 1, "revocation-registry should emit 1 event");
         let (_, topics, data) = &rev_events[0];
         assert_eq!(topics.len(), 1);
-        let topic_symbol: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
-        assert_eq!(topic_symbol, Symbol::new(&env, "Initialized"));
+        let topic2: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+        assert_eq!(topic2, Symbol::new(&env, "Initialized"));
         let event_admin: soroban_sdk::Address = data.clone().try_into_val(&env).unwrap();
         assert_eq!(event_admin, admin, "Init event admin mismatch for revocation-registry");
     }
@@ -764,18 +764,18 @@ mod tests {
         // 1) Two-step admin transfer on `credit`: admin -> new_admin
         let new_admin = soroban_sdk::Address::generate(&env);
         // Propose new admin (signed by current admin)
-        let _ = credit.propose_new_admin(&new_admin);
+        credit.propose_new_admin(&new_admin);
         // Accept as new admin
-        let _ = credit.accept_admin(&new_admin);
+        credit.accept_admin(&new_admin);
 
         // Verify admin changed by exercising an admin-only call using `new_admin`
         let feeder = soroban_sdk::Address::generate(&env);
-        let _ = credit.register_feeder(&new_admin, &feeder);
+        credit.register_feeder(&new_admin, &feeder);
 
         // 2) Transfer oracle admin to governance contract
-        let _ = credit.propose_new_admin(&gov_id);
+        credit.propose_new_admin(&gov_id);
         // Governance accepts the oracle admin on its behalf
-        let _ = gov.accept_oracle_admin();
+        gov.accept_oracle_admin();
 
         // 3) Governance proposal lifecycle: create -> vote -> execute -> apply
         let proposed_weights = ScoringWeights {
@@ -793,7 +793,7 @@ mod tests {
         // Register voter with sufficient weight
         gov.register_voter(&admin, &voter, &200i128);
 
-        let _ = gov.vote(&voter, &proposal_id, &true, &200i128);
+        gov.vote(&voter, &proposal_id, &true, &200i128);
 
         // Advance ledger past voting expiry
         env.ledger().with_mut(|l| {
@@ -801,7 +801,7 @@ mod tests {
         });
 
         // Execute proposal (governance is now credit admin and will propose weights)
-        let _ = gov.execute(&proposal_id);
+        gov.execute(&proposal_id);
 
         // Advance ledger to pass credit-oracle timelock and apply the proposed weights
         let jump = 100_000u32;
@@ -982,6 +982,125 @@ mod tests {
 
         let stats4 = credit.get_protocol_stats();
         assert_eq!(stats4.total_subjects_scored, 2);
+    }
+
+    /// Verify that deactivate/reactivate lifecycle works across identity-oracle
+    /// and credit-oracle, and that compute_score returns 300 for deactivated subjects.
+    #[test]
+    fn test_deactivate_identity_affects_compute_score() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let identity_id = env.register_contract(None, IdentityOracle);
+        let credit_id = env.register_contract(None, CreditOracle);
+
+        let identity = IdentityOracleClient::new(&env, &identity_id);
+        let credit = CreditOracleClient::new(&env, &credit_id);
+
+        let admin = soroban_sdk::Address::generate(&env);
+        identity.initialize(&admin);
+        credit.initialize(&admin);
+
+        // Link credit-oracle to identity-oracle for cross-contract lookups
+        credit.set_identity_oracle(&admin, &identity_id);
+
+        // Register an issuer
+        let issuer = soroban_sdk::Address::generate(&env);
+        identity.register_issuer(&issuer);
+
+        // Create a subject with a DID and 2 VCs
+        let subject = soroban_sdk::Address::generate(&env);
+        let cid = String::from_str(&env, "ipfs://QmTestDID");
+        identity.anchor_did(&subject, &cid);
+
+        let vc_hash1 = BytesN::from_array(&env, &[1u8; 32]);
+        let vc_hash2 = BytesN::from_array(&env, &[2u8; 32]);
+        identity.anchor_vc(&issuer, &subject, &vc_hash1);
+        identity.anchor_vc(&issuer, &subject, &vc_hash2);
+
+        // Register a lender and record repayments so score > 300
+        let lender = soroban_sdk::Address::generate(&env);
+        let feeder = soroban_sdk::Address::generate(&env);
+        credit.register_lender(&admin, &lender);
+        credit.register_feeder(&admin, &feeder);
+
+        credit.update_tx_stats(
+            &feeder,
+            &subject,
+            &TxStats {
+                volume_30d: 500_000_000i128,
+                tx_count_30d: 10,
+                avg_counterparties: 3,
+            },
+        );
+        for _ in 0..5 {
+            credit.record_repayment(&lender, &subject, &100_000_000i128, &true);
+        }
+
+        // 1. Initial score should be > 300 (has active VCs)
+        let initial_score = credit.compute_score(&subject);
+        assert!(
+            initial_score > 300,
+            "expected initial score > 300, got {}",
+            initial_score
+        );
+
+        // 2. Deactivate the identity
+        let revoked = identity.deactivate_identity(&subject);
+        assert_eq!(revoked, 2);
+        assert!(identity.is_deactivated(&subject));
+        assert!(!identity.is_verified(&subject));
+        assert_eq!(identity.get_active_vc_count(&subject), 0);
+
+        // 3. compute_score should now return 300 for deactivated subject
+        let score_after_deactivation = credit.compute_score(&subject);
+        assert_eq!(
+            score_after_deactivation, 300,
+            "expected score 300 for deactivated subject, got {}",
+            score_after_deactivation
+        );
+
+        // 4. Reactivate the identity
+        identity.reactivate_identity(&subject);
+        assert!(!identity.is_deactivated(&subject));
+
+        // 5. is_verified still false because VCs remain revoked
+        assert!(!identity.is_verified(&subject));
+        assert_eq!(identity.get_active_vc_count(&subject), 0);
+
+        // 6. compute_score after reactivation is < initial but >= 300
+        //    because repayment history and tx stats remain in the credit-oracle
+        env.ledger()
+            .set_sequence_number(env.ledger().sequence() + 1);
+        let score_after_reactivation = credit.compute_score(&subject);
+        assert!(
+            score_after_reactivation >= 300,
+            "expected score >= 300 after reactivation, got {}",
+            score_after_reactivation
+        );
+        assert!(
+            score_after_reactivation < initial_score,
+            "expected score after reactivation ({}) < initial score ({}), got {} (VCs are 0 but repayment data remains)",
+            score_after_reactivation,
+            initial_score,
+            score_after_reactivation
+        );
+
+        // 7. Anchor a new VC — subject becomes verified again
+        let vc_hash3 = BytesN::from_array(&env, &[3u8; 32]);
+        identity.anchor_vc(&issuer, &subject, &vc_hash3);
+        assert!(identity.is_verified(&subject));
+        assert_eq!(identity.get_active_vc_count(&subject), 1);
+
+        // 8. Score should now be > 300 again
+        env.ledger()
+            .set_sequence_number(env.ledger().sequence() + 1);
+        let score_final = credit.compute_score(&subject);
+        assert!(
+            score_final > 300,
+            "expected score > 300 after new VC, got {}",
+            score_final
+        );
     }
 
     /// Verify that computing a score twice captures the previous score in the record.

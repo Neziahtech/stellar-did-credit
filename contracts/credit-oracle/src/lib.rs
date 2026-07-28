@@ -552,6 +552,16 @@ impl CreditOracle {
             .instance()
             .get::<_, Address>(&DataKey::IdentityOracleId)
         {
+            // Check if the subject has deactivated their identity
+            let is_deactivated: bool = env.invoke_contract(
+                &identity_oracle_id,
+                &soroban_sdk::Symbol::new(&env, "is_deactivated"),
+                soroban_sdk::vec![&env, subject.clone().into_val(&env)],
+            );
+            if is_deactivated {
+                return MIN_SCORE;
+            }
+
             vc_count = env.invoke_contract::<u32>(
                 &identity_oracle_id,
                 &soroban_sdk::Symbol::new(&env, "get_active_vc_count"),
@@ -592,6 +602,7 @@ impl CreditOracle {
 
         let mut previous_score: Option<u32> = None;
         let mut needs_write = true;
+        let mut is_first_computation = true;
         if let Some(prev) = env
             .storage()
             .persistent()
@@ -605,6 +616,7 @@ impl CreditOracle {
                 needs_write = false;
             }
             previous_score = Some(prev.score);
+            is_first_computation = false;
         }
 
         let is_first = !env
@@ -613,8 +625,7 @@ impl CreditOracle {
             .has(&DataKey::Score(subject.clone()));
 
         if needs_write {
-            // Only increment subjects_scored for first-time subjects (no previous score)
-            if previous_score.is_none() {
+            if is_first_computation {
                 increment_subjects_scored(&env);
             }
             env.storage().persistent().set(
