@@ -1844,6 +1844,10 @@ mod tests {
         assert!(registry.is_none(), "RevocationRegistryId should be None after initialization");
     }
 
+    // -----------------------------------------------------------------------
+    // Revocation Registry configuration tests
+    // -----------------------------------------------------------------------
+
     #[test]
     fn test_protocol_stats_default_zero() {
         let env = Env::default();
