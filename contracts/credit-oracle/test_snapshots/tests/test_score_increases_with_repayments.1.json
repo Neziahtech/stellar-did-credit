@@ -556,7 +556,7 @@
                         "symbol": "score"
                       },
                       "val": {
-                        "u32": 465
+                        "u32": 382
                       }
                     },
                     {
@@ -1213,7 +1213,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "u32": 465
+                  "u32": 382
                 }
               ]
             }

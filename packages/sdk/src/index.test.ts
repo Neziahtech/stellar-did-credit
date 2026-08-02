@@ -69,8 +69,8 @@ jest.mock("@stellar/stellar-sdk", () => ({
     setTimeout: jest.fn().mockReturnThis(),
     build: jest.fn().mockReturnValue({ operations: [] }),
   })),
-  nativeToScVal: (value: unknown, _opts?: unknown) => ({ value }),
-  scValToNative: (scVal: { value: unknown }) => (scVal as any)?.value,
+  nativeToScVal: (value: unknown) => ({ value }),
+  scValToNative: (scVal: { value?: unknown }) => scVal?.value,
   SorobanRpc: {
     Server: jest.fn().mockImplementation(() => ({
       getAccount: mockGetAccount,
@@ -78,14 +78,14 @@ jest.mock("@stellar/stellar-sdk", () => ({
       simulateTransaction: mockSimulateTransaction,
       getTransaction: mockGetTransaction,
     })),
+    assembleTransaction: jest.fn().mockReturnValue({
+      build: jest.fn().mockReturnValue({
+        sign: jest.fn(),
+      }),
+    }),
     Api: {
       isSimulationError: (sim: { error?: string }) => Boolean(sim?.error),
       isSimulationSuccess: (sim: { result?: unknown }) => Boolean(sim?.result),
-      assembleTransaction: jest.fn().mockReturnValue({
-        build: jest.fn().mockReturnValue({
-          sign: jest.fn(),
-        }),
-      }),
     },
   },
 }));
@@ -120,7 +120,7 @@ describe("StellarDIDCreditSDK", () => {
     mockGetTransaction.mockReset();
     mockContractCalls.length = 0;
     mockLastContractCall = undefined;
-    mockGetAccount.mockResolvedValue({ sequence: "1" });
+    mockGetAccount.mockResolvedValue({ sequenceNumber: () => "1" });
     mockSimulateTransaction.mockResolvedValue({ result: {} });
     mockSendTransaction.mockResolvedValue({
       status: "PENDING",
@@ -423,7 +423,7 @@ describe("StellarDIDCreditSDK", () => {
 
   describe("computeScore", () => {
     it("returns an updated ScoreRecord after successful compute + confirmation", async () => {
-      mockGetAccount.mockResolvedValue({ sequence: "10" });
+      mockGetAccount.mockResolvedValue({ sequenceNumber: () => "10" });
       mockSendTransaction.mockResolvedValue({
         status: "PENDING",
         hash: "tx-compute-hash",
@@ -469,7 +469,7 @@ describe("StellarDIDCreditSDK", () => {
 
     it("polls getTransaction until SUCCESS before reading the stored score", async () => {
       jest.useFakeTimers();
-      mockGetAccount.mockResolvedValue({ sequence: "123" });
+      mockGetAccount.mockResolvedValue({ sequenceNumber: () => "123" });
       mockSendTransaction.mockResolvedValue({
         status: "PENDING",
         hash: "tx-hash-1",
@@ -518,7 +518,7 @@ describe("StellarDIDCreditSDK", () => {
     });
 
     it("throws a descriptive error when the stored score is missing after confirmation", async () => {
-      mockGetAccount.mockResolvedValue({ sequence: "123" });
+      mockGetAccount.mockResolvedValue({ sequenceNumber: () => "123" });
       mockSendTransaction.mockResolvedValue({
         status: "PENDING",
         hash: "tx-hash-2",
@@ -546,7 +546,7 @@ describe("StellarDIDCreditSDK", () => {
     });
 
     it("throws a descriptive error when the submitted transaction FAILS", async () => {
-      mockGetAccount.mockResolvedValue({ sequence: "123" });
+      mockGetAccount.mockResolvedValue({ sequenceNumber: () => "123" });
       mockSendTransaction.mockResolvedValue({
         status: "PENDING",
         hash: "tx-hash-3",
@@ -573,7 +573,7 @@ describe("StellarDIDCreditSDK", () => {
     });
 
     it("throws when computeScore simulation returns an explicit error", async () => {
-      mockGetAccount.mockResolvedValue({ sequence: "123" });
+      mockGetAccount.mockResolvedValue({ sequenceNumber: () => "123" });
       mockSimulateTransaction.mockResolvedValue({ error: "compute_score rejected" });
 
       const sdk = new StellarDIDCreditSDK(mockConfig);

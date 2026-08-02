@@ -41,7 +41,6 @@ import {
   Keypair,
   Horizon,
 } from "@stellar/stellar-sdk";
-import { assembleTransaction } from "@stellar/stellar-sdk/rpc";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -78,6 +77,53 @@ export interface TxStats {
   txCount30d: number;
   /** Average number of distinct counterparties per transaction. */
   avgCounterparties: number;
+}
+
+/**
+ * Minimal Horizon operation record shape used by fetchHorizonStats.
+ * Only the fields needed for 30-day stats aggregation are surfaced.
+ */
+interface HorizonOperationRecord {
+  type: string;
+  transaction_hash: string;
+  created_at: string;
+  from?: string;
+  to?: string;
+  amount?: string;
+  asset_type?: string;
+}
+
+/** Minimal shape of an HTTP error surfaced by Horizon/RPC clients. */
+interface ErrorWithMeta {
+  message?: string;
+  code?: string;
+  response?: {
+    status?: number;
+    data?: { extras?: { result_codes?: unknown } };
+    headers?: { get(name: string): string | null } | Record<string, string>;
+  };
+}
+
+/** Minimal shape of a Horizon payments page consumed by fetchHorizonStats. */
+interface HorizonPaymentPage {
+  records: HorizonOperationRecord[];
+  next: () => Promise<HorizonPaymentPage>;
+}
+
+/**
+ * Reads the `Retry-After` HTTP header (in seconds) from a response headers
+ * object, falling back to a raw string lookup. Returns undefined when absent.
+ */
+function getRetryAfterSeconds(
+  headers: { get(name: string): string | null } | Record<string, string>,
+): number | undefined {
+  const raw =
+    typeof headers.get === "function"
+      ? headers.get("retry-after")
+      : (headers as Record<string, string>)["retry-after"];
+  if (!raw) return undefined;
+  const seconds = Number(raw);
+  return Number.isNaN(seconds) ? undefined : Math.max(0.5, seconds);
 }
 
 /**
@@ -118,7 +164,7 @@ function isValidStellarAddress(address: string): boolean {
  * These errors are permanent and should not be retried.
  */
 function isAccountNotFoundError(error: unknown): boolean {
-  const err = error as any;
+  const err = error as ErrorWithMeta;
 
   // Check for Horizon 404 response
   if (err?.response?.status === 404) return true;
@@ -144,7 +190,7 @@ function isAccountNotFoundError(error: unknown): boolean {
  * Includes network timeouts, rate limits (429), and server errors (500/503).
  */
 function isTransientError(error: unknown): boolean {
-  const err = error as any;
+  const err = error as ErrorWithMeta;
 
   // Network timeout
   if (err?.code === "ECONNREFUSED" || err?.code === "ETIMEDOUT") return true;
@@ -218,21 +264,16 @@ export async function fetchHorizonStats(
     for (let attempt = 0; ; attempt++) {
       try {
         return await fn();
-      } catch (err: any) {
-        const status = err?.response?.status;
-        const headers = err?.response?.headers;
+      } catch (err) {
+        const errMeta = err as ErrorWithMeta;
+        const status = errMeta?.response?.status;
+        const headers = errMeta?.response?.headers;
         if (status === 429 && headers) {
           // Try to read `Retry-After` header (seconds). Fall back to a small delay.
           let retryAfterMs = 1000;
           try {
-            const ra =
-              typeof headers.get === "function"
-                ? headers.get("retry-after")
-                : headers["retry-after"];
-            if (ra) {
-              const sec = Number(ra);
-              if (!Number.isNaN(sec)) retryAfterMs = Math.max(500, sec * 1000);
-            }
+            const sec = getRetryAfterSeconds(headers);
+            if (sec !== undefined) retryAfterMs = Math.max(500, sec * 1000);
           } catch (e) {
             // ignore header parsing errors
           }
@@ -248,7 +289,7 @@ export async function fetchHorizonStats(
     }
   }
 
-  let page: any;
+  let page: HorizonPaymentPage;
   try {
     page = await callWithHorizonRateLimit(() =>
       horizon.payments().forAccount(address).order("desc").limit(200).call(),
@@ -275,15 +316,7 @@ export async function fetchHorizonStats(
 
   outer: while (page.records.length > 0) {
     for (const record of page.records) {
-      const op = record as Horizon.ServerApi.PaymentOperationRecord &
-        Horizon.ServerApi.CreateAccountOperationRecord & {
-          transaction_hash: string;
-          created_at: string;
-          from?: string;
-          to?: string;
-          amount?: string;
-          asset_type?: string;
-        };
+      const op = record;
 
       if (new Date(op.created_at) < cutoff) {
         break outer;
@@ -327,9 +360,8 @@ export async function fetchHorizonStats(
 }
 
 /** Extract the sequence number string from a Soroban RPC account response. */
-function getSequence(accountData: SorobanRpc.Api.GetAccountResponse): string {
-  const data = accountData as unknown as { sequence: string };
-  return data.sequence;
+function getSequence(account: Account): string {
+  return account.sequenceNumber();
 }
 
 /**
@@ -370,7 +402,7 @@ export async function getActiveVcCount(
     .setTimeout(30)
     .build();
 
-  let sim: any;
+  let sim: SorobanRpc.Api.SimulateTransactionResponse;
   try {
     sim = await server.simulateTransaction(tx);
   } catch (err) {
@@ -451,7 +483,7 @@ async function submitOperation(
     throw new Error("Unexpected simulation response");
   }
 
-  const preparedTx = assembleTransaction(tx, sim).build();
+  const preparedTx = SorobanRpc.assembleTransaction(tx, sim).build();
   preparedTx.sign(feederKeypair);
 
   const response = await server.sendTransaction(preparedTx);
@@ -842,17 +874,12 @@ async function withExponentialBackoff<T>(
       // If the error carries a `Retry-After` header, prefer that delay.
       let retryAfterMs: number | undefined = undefined;
       try {
-        const status = (err as any)?.response?.status;
-        const headers = (err as any)?.response?.headers;
+        const errMeta = err as ErrorWithMeta;
+        const status = errMeta?.response?.status;
+        const headers = errMeta?.response?.headers;
         if (status === 429 && headers) {
-          const ra =
-            typeof headers.get === "function"
-              ? headers.get("retry-after")
-              : headers["retry-after"];
-          if (ra) {
-            const sec = Number(ra);
-            if (!Number.isNaN(sec)) retryAfterMs = Math.max(500, sec * 1000);
-          }
+          const sec = getRetryAfterSeconds(headers);
+          if (sec !== undefined) retryAfterMs = Math.max(500, sec * 1000);
         }
       } catch (e) {
         /* ignore */

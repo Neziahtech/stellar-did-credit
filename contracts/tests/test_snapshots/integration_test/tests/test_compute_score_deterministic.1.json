@@ -1161,7 +1161,7 @@
                         "symbol": "score"
                       },
                       "val": {
-                        "u32": 382
+                        "u32": 470
                       }
                     },
                     {
@@ -1188,7 +1188,7 @@
                         "symbol": "vc_count"
                       },
                       "val": {
-                        "u32": 0
+                        "u32": 2
                       }
                     }
                   ]
@@ -1272,7 +1272,7 @@
                         "symbol": "score"
                       },
                       "val": {
-                        "u32": 382
+                        "u32": 470
                       }
                     },
                     {
@@ -1299,7 +1299,7 @@
                         "symbol": "vc_count"
                       },
                       "val": {
-                        "u32": 0
+                        "u32": 2
                       }
                     }
                   ]
@@ -2705,7 +2705,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
                 },
                 {
-                  "u32": 382
+                  "u32": 470
                 }
               ]
             }

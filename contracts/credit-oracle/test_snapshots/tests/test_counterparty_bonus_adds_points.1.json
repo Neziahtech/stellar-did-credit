@@ -730,7 +730,7 @@
                         "symbol": "previous_score"
                       },
                       "val": {
-                        "u32": 646
+                        "u32": 564
                       }
                     },
                     {
@@ -746,7 +746,7 @@
                         "symbol": "score"
                       },
                       "val": {
-                        "u32": 657
+                        "u32": 575
                       }
                     },
                     {
@@ -1753,7 +1753,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                 },
                 {
-                  "u32": 657
+                  "u32": 575
                 }
               ]
             }

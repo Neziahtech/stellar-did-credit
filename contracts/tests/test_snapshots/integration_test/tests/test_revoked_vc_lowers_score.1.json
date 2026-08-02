@@ -1077,7 +1077,7 @@
                         "symbol": "computed_at_ledger"
                       },
                       "val": {
-                        "u32": 0
+                        "u32": 1
                       }
                     },
                     {
@@ -1092,7 +1092,9 @@
                       "key": {
                         "symbol": "previous_score"
                       },
-                      "val": "void"
+                      "val": {
+                        "u32": 437
+                      }
                     },
                     {
                       "key": {

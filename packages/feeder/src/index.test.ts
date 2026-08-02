@@ -9,7 +9,7 @@ import * as sdk from "@stellar/stellar-sdk";
 // ---------------------------------------------------------------------------
 
 const mockServerInstance = {
-  getAccount: jest.fn().mockResolvedValue({ sequence: "1" }),
+  getAccount: jest.fn().mockResolvedValue({ sequenceNumber: () => "1" }),
   simulateTransaction: jest.fn().mockResolvedValue({
     result: { retval: { _value: 0 } },
   }),
@@ -41,6 +41,11 @@ const mockHorizonInstance = {
 jest.mock("@stellar/stellar-sdk", () => ({
   SorobanRpc: {
     Server: jest.fn().mockImplementation(() => mockServerInstance),
+    assembleTransaction: jest.fn().mockImplementation(() => ({
+      build: jest.fn().mockReturnValue({
+        sign: jest.fn(),
+      }),
+    })),
     Api: {
       isSimulationError: jest.fn(
         (sim: { error?: unknown }) => sim?.error !== undefined,
@@ -86,14 +91,6 @@ jest.mock("@stellar/stellar-sdk", () => ({
   Horizon: {
     Server: jest.fn().mockImplementation(() => mockHorizonInstance),
   },
-}));
-
-jest.mock("@stellar/stellar-sdk/rpc", () => ({
-  assembleTransaction: jest.fn().mockImplementation(() => ({
-    build: jest.fn().mockReturnValue({
-      sign: jest.fn(),
-    }),
-  })),
 }));
 
 // Reset shared mock state before each test.
@@ -229,7 +226,7 @@ describe("Feeder state tracking", () => {
       avgCounterparties: 0,
     });
 
-    sdk.scValToNative.mockReturnValue(3);
+    jest.mocked(sdk.scValToNative).mockReturnValue(3);
     mockHorizonPaymentsCall.mockResolvedValue({ records: [] });
 
     // The feeder should detect no change and return early.
@@ -257,7 +254,7 @@ describe("Feeder state tracking", () => {
     });
 
     // Return a different vcCount (5) so the comparison detects a change.
-    sdk.scValToNative.mockReturnValue(5);
+    jest.mocked(sdk.scValToNative).mockReturnValue(5);
 
     mockHorizonPaymentsCall.mockResolvedValue({ records: [] });
 
@@ -286,7 +283,7 @@ describe("Feeder state tracking", () => {
     expect((feeder as any).syncState.size).toBe(0);
 
     // Mock: getActiveVcCount returns 3, getHasIdentityOracle returns null.
-    sdk.scValToNative
+    jest.mocked(sdk.scValToNative)
       .mockReturnValueOnce(3)
       .mockReturnValueOnce(null);
 
@@ -303,7 +300,9 @@ describe("Feeder state tracking", () => {
     mockServerInstance.getTransaction.mockResolvedValue({
       status: "SUCCESS",
     });
-    mockServerInstance.getAccount.mockResolvedValue({ sequence: "99" });
+    mockServerInstance.getAccount.mockResolvedValue({
+      sequenceNumber: () => "99",
+    });
 
     // feedSubject proceeds through the full sync path.
     await feeder.feedSubject("GBAD5234567234567234567234567234567234567234567234567231");
@@ -437,7 +436,7 @@ describe("Address validation and error handling", () => {
   it("getActiveVcCount returns 0 for unknown subject without throwing", async () => {
     const { getActiveVcCount } = await import("./index");
 
-    sdk.scValToNative.mockReturnValueOnce(0);
+    jest.mocked(sdk.scValToNative).mockReturnValueOnce(0);
     mockServerInstance.simulateTransaction.mockResolvedValueOnce({
       result: { retval: {} },
     });

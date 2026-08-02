@@ -64,6 +64,9 @@ export interface ProtocolConfig {
   baseFee?: string;
 }
 
+/** A Stellar keypair, or a minimal object exposing a public key. */
+export type KeypairLike = Keypair | { publicKey: string };
+
 export class StellarDIDCreditSDK {
   private server: SorobanRpc.Server;
 
@@ -84,7 +87,7 @@ export class StellarDIDCreditSDK {
    * @throws Error if subjectAddress is provided and does not match subjectKeypair's public key
    */
   async anchorDID(
-    subjectKeypair: any,
+    subjectKeypair: KeypairLike,
     didDocCid: string,
     subjectAddress?: string,
   ): Promise<string> {
@@ -102,7 +105,7 @@ export class StellarDIDCreditSDK {
 
     // Get the current account sequence number
     const accountData = await server.getAccount(publicKey);
-    const sourceAccount = new Account(publicKey, (accountData as any).sequence);
+    const sourceAccount = new Account(publicKey, accountData.sequenceNumber());
 
     const tx = new TransactionBuilder(sourceAccount, {
       fee: BASE_FEE,
@@ -130,11 +133,8 @@ export class StellarDIDCreditSDK {
     }
 
     // Apply simulation result and prepare the transaction
-    const preparedTx = (SorobanRpc.Api as any).assembleTransaction(
-      tx,
-      sim,
-    ).build();
-    preparedTx.sign(subjectKeypair);
+    const preparedTx = SorobanRpc.assembleTransaction(tx, sim).build();
+    preparedTx.sign(subjectKeypair as Keypair);
 
     // Submit to the network
     const response = await server.sendTransaction(preparedTx);
@@ -158,7 +158,7 @@ export class StellarDIDCreditSDK {
    * @returns Transaction hash on successful submission
    */
   async issueVC(
-    issuerKeypair: any,
+    issuerKeypair: KeypairLike,
     subjectAddress: string,
     vcHash: Buffer,
   ): Promise<string> {
@@ -170,13 +170,13 @@ export class StellarDIDCreditSDK {
     const contract = new Contract(this.config.identityOracleId);
 
     const publicKey =
-      issuerKeypair.publicKey instanceof Function
+      typeof issuerKeypair.publicKey === "function"
         ? issuerKeypair.publicKey()
         : issuerKeypair.publicKey;
 
     // Get the current account sequence number
     const accountData = await server.getAccount(publicKey);
-    const sourceAccount = new Account(publicKey, (accountData as any).sequence);
+    const sourceAccount = new Account(publicKey, accountData.sequenceNumber());
 
     // Convert vcHash Buffer to ScVal
     const hashScVal = nativeToScVal(new Uint8Array(vcHash), { type: "bytes" });
@@ -208,11 +208,8 @@ export class StellarDIDCreditSDK {
     }
 
     // Apply simulation result and prepare the transaction
-    const preparedTx = (SorobanRpc.Api as any).assembleTransaction(
-      tx,
-      sim,
-    ).build();
-    preparedTx.sign(issuerKeypair);
+    const preparedTx = SorobanRpc.assembleTransaction(tx, sim).build();
+    preparedTx.sign(issuerKeypair as Keypair);
 
     // Submit to the network
     const response = await server.sendTransaction(preparedTx);
@@ -249,7 +246,7 @@ export class StellarDIDCreditSDK {
     const publicKey = payerKeypair.publicKey();
 
     const accountData = await this.server.getAccount(publicKey);
-    const sourceAccount = new Account(publicKey, (accountData as any).sequence);
+    const sourceAccount = new Account(publicKey, accountData.sequenceNumber());
 
     const tx = new TransactionBuilder(sourceAccount, {
           fee: this.config.baseFee ?? BASE_FEE,
@@ -274,10 +271,7 @@ export class StellarDIDCreditSDK {
       throw new Error("Simulation returned unexpected response");
     }
 
-    const preparedTx = (SorobanRpc.Api as any).assembleTransaction(
-      tx,
-      sim,
-    ).build();
+    const preparedTx = SorobanRpc.assembleTransaction(tx, sim).build();
     preparedTx.sign(payerKeypair);
 
     const response = await this.server.sendTransaction(preparedTx);
@@ -350,7 +344,7 @@ export class StellarDIDCreditSDK {
         if (!resultScVal) {
           throw new Error("No return value in simulation result");
         }
-        return parseScoreRecord(resultScVal, subjectAddress);
+        return parseScoreRecord(resultScVal);
       }
 
       attempts++;
@@ -424,7 +418,7 @@ export class StellarDIDCreditSDK {
    * @returns Transaction hash after successful ledger confirmation
    */
   async revokeVC(
-    issuerKeypair: any,
+    issuerKeypair: KeypairLike,
     subjectAddress: string,
     vcHash: Buffer,
   ): Promise<string> {
@@ -436,13 +430,13 @@ export class StellarDIDCreditSDK {
     const registryContract = new Contract(this.config.revocationRegistryId);
 
     const publicKey =
-      issuerKeypair.publicKey instanceof Function
+      typeof issuerKeypair.publicKey === "function"
         ? issuerKeypair.publicKey()
         : issuerKeypair.publicKey;
 
     // Get the current account sequence number
     const accountData = await server.getAccount(publicKey);
-    const sourceAccount = new Account(publicKey, (accountData as any).sequence);
+    const sourceAccount = new Account(publicKey, accountData.sequenceNumber());
 
     // Convert vcHash Buffer to ScVal
     const hashScVal = nativeToScVal(new Uint8Array(vcHash), { type: "bytes" });
@@ -478,11 +472,8 @@ export class StellarDIDCreditSDK {
     }
 
     // Apply simulation result and prepare the transaction
-    const preparedTx = (SorobanRpc.Api as any).assembleTransaction(
-      tx,
-      sim,
-    ).build();
-    preparedTx.sign(issuerKeypair);
+    const preparedTx = SorobanRpc.assembleTransaction(tx, sim).build();
+    preparedTx.sign(issuerKeypair as Keypair);
 
     // Submit to the network
     const response = await server.sendTransaction(preparedTx);
@@ -729,7 +720,7 @@ export class ScoreNotComputedError extends Error {
  * Parse a Soroban ScVal representing an Option<ScoreRecord>.
  * Returns the ScoreRecord if Some, returns null if None.
  */
-function parseScoreRecord(scVal: xdr.ScVal, subjectAddress: string): ScoreRecord | null {
+function parseScoreRecord(scVal: xdr.ScVal): ScoreRecord | null {
   const native = scValToNative(scVal);
   // Option::None is represented as null/undefined by scValToNative
   if (native === null || native === undefined) {
