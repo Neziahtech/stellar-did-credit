@@ -126,6 +126,42 @@ describe("StellarDIDCreditSDK", () => {
       status: "PENDING",
       hash: "mock-tx-hash",
     });
+    (jest.requireMock("@stellar/stellar-sdk").SorobanRpc.Server as jest.Mock).mockClear();
+  });
+
+  describe("RPC server instance reuse", () => {
+    it("constructs a single SorobanRpc.Server across multiple SDK calls", async () => {
+      const { SorobanRpc } = jest.requireMock("@stellar/stellar-sdk");
+      const serverMock = SorobanRpc.Server as jest.Mock;
+
+      mockSimulateTransaction.mockResolvedValue({
+        result: {
+          retval: {
+            value: {
+              score: 612,
+              last_updated: 1_700_000_000,
+              vc_count: 3,
+              repayment_rate: 8000,
+              tx_volume_30d: 1_000_000n,
+              previous_score: null,
+              computed_at_ledger: 1234567,
+              stale: false,
+            },
+          },
+        },
+      });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+      expect(serverMock).toHaveBeenCalledTimes(1);
+
+      await sdk.getScore(subjectAddress);
+      await sdk.getDIDDocument(subjectAddress);
+      await sdk.getVCCount(subjectAddress);
+      await sdk.getWeights();
+      await sdk.isVerified(subjectAddress);
+
+      expect(serverMock).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("getDIDDocument", () => {

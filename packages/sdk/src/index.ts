@@ -100,7 +100,7 @@ export class StellarDIDCreditSDK {
       throw new Error("subjectKeypair public key does not match subject");
     }
 
-    const server = new SorobanRpc.Server(this.config.rpcUrl);
+    const server = this.server;
     const contract = new Contract(this.config.identityOracleId);
 
     // Get the current account sequence number
@@ -166,7 +166,7 @@ export class StellarDIDCreditSDK {
       throw new Error("vcHash must be exactly 32 bytes");
     }
 
-    const server = new SorobanRpc.Server(this.config.rpcUrl);
+    const server = this.server;
     const contract = new Contract(this.config.identityOracleId);
 
     const publicKey =
@@ -312,7 +312,7 @@ export class StellarDIDCreditSDK {
    * @returns Parsed ScoreRecord, or null if the score has not been computed
    */
   async getScore(subjectAddress: string): Promise<ScoreRecord | null> {
-    const server = new SorobanRpc.Server(this.config.rpcUrl);
+    const server = this.server;
     const contract = new Contract(this.config.creditOracleId);
     const sourceAccount = new Account(this.config.simAccount, "0");
 
@@ -365,7 +365,7 @@ export class StellarDIDCreditSDK {
    * @returns The IPFS CID of the anchored DID document, or null if no DID is anchored
    */
   async getDIDDocument(subjectAddress: string): Promise<string | null> {
-    const server = new SorobanRpc.Server(this.config.rpcUrl);
+    const server = this.server;
     const contract = new Contract(this.config.identityOracleId);
     const sourceAccount = new Account(this.config.simAccount, "0");
 
@@ -426,7 +426,7 @@ export class StellarDIDCreditSDK {
       throw new Error("vcHash must be exactly 32 bytes");
     }
 
-    const server = new SorobanRpc.Server(this.config.rpcUrl);
+    const server = this.server;
     const registryContract = new Contract(this.config.revocationRegistryId);
 
     const publicKey =
@@ -505,7 +505,7 @@ export class StellarDIDCreditSDK {
    * @returns true if subject has ≥ 1 non-revoked credential
    */
   async isVerified(subjectAddress: string): Promise<boolean> {
-    const server = new SorobanRpc.Server(this.config.rpcUrl);
+    const server = this.server;
     const contract = new Contract(this.config.identityOracleId);
 
     const sourceAccount = new Account(this.config.simAccount, "0");
@@ -551,7 +551,7 @@ export class StellarDIDCreditSDK {
       throw new Error("vcHash must be exactly 32 bytes");
     }
 
-    const server = new SorobanRpc.Server(this.config.rpcUrl);
+    const server = this.server;
     const contract = new Contract(this.config.identityOracleId);
     const sourceAccount = new Account(this.config.simAccount, "0");
 
@@ -598,7 +598,7 @@ export class StellarDIDCreditSDK {
    * @returns The count of active non-revoked VCs
    */
   async getVCCount(subjectAddress: string): Promise<number> {
-    const server = new SorobanRpc.Server(this.config.rpcUrl);
+    const server = this.server;
     const contract = new Contract(this.config.identityOracleId);
     const sourceAccount = new Account(this.config.simAccount, "0");
 
@@ -638,7 +638,7 @@ export class StellarDIDCreditSDK {
    * @returns The current ScoringWeights configuration
    */
   async getWeights(): Promise<ScoringWeights> {
-    const server = new SorobanRpc.Server(this.config.rpcUrl);
+    const server = this.server;
     const contract = new Contract(this.config.creditOracleId);
     const sourceAccount = new Account(this.config.simAccount, "0");
 
@@ -676,7 +676,7 @@ export class StellarDIDCreditSDK {
    * @returns Array of Stellar G... addresses of registered issuers
    */
   async getRegisteredIssuers(): Promise<string[]> {
-    const server = new SorobanRpc.Server(this.config.rpcUrl);
+    const server = this.server;
     const contract = new Contract(this.config.identityOracleId);
     const sourceAccount = new Account(this.config.simAccount, "0");
 
