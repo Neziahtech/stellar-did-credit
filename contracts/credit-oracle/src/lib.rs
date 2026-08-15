@@ -877,9 +877,13 @@ impl CreditOracle {
             weights.repayment_weight,
         );
 
-        let repayment_rate = (repayment.on_time_count * 10000)
-            .checked_div(repayment.total_count)
-            .unwrap_or(0);
+        // Compute the repayment rate in basis points. The counters are u32, so
+        // the product must be widened to u64: `on_time_count * 10000` overflows
+        // u32 once a subject passes ~429k on-time repayments, which would panic
+        // (overflow-checks are enabled) and permanently brick compute_score.
+        let repayment_rate = (repayment.on_time_count as u64 * 10_000)
+            .checked_div(repayment.total_count as u64)
+            .unwrap_or(0) as u32;
 
         let mut previous_score: Option<u32> = None;
         let mut needs_write = true;
@@ -1492,6 +1496,43 @@ mod tests {
         });
         let rate = record.on_time_count * 10000 / record.total_count;
         assert_eq!(rate, 8000);
+    }
+
+    #[test]
+    fn test_compute_score_repayment_rate_does_not_overflow() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, CreditOracle);
+        let client = CreditOracleClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let subject = Address::generate(&env);
+        client.initialize(&admin);
+
+        // Seed a subject with more on-time repayments than `u32::MAX / 10000`.
+        // Without the u64 widening in `compute_score`, `on_time_count * 10000`
+        // overflows u32 and panics (overflow-checks are enabled), permanently
+        // reverting every future `compute_score` call for this subject.
+        let on_time_count: u32 = 1_000_000;
+        env.as_contract(&contract_id, || {
+            env.storage().instance().set(&DataKey::StorageVersion, &2u32);
+            env.storage().persistent().set(
+                &DataKey::RepaymentRecord(subject.clone()),
+                &RepaymentRecord {
+                    on_time_count,
+                    total_count: on_time_count,
+                    total_repaid: 0,
+                },
+            );
+        });
+
+        let score = client.compute_score(&subject);
+        assert!(score >= MIN_SCORE && score <= MAX_SCORE);
+
+        let record = client
+            .get_score(&subject)
+            .expect("score should have been computed");
+        assert_eq!(record.repayment_rate, 10_000);
     }
 
     #[test]
