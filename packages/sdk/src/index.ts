@@ -631,6 +631,105 @@ export class StellarDIDCreditSDK {
   }
 
   /**
+   * Fetch the list of verifiable credential anchors for a subject from the
+   * identity-oracle, including revoked entries.
+   *
+   * Uses a read-only simulation (no signing required).
+   *
+   * @param subjectAddress - Stellar G... address of the subject
+   * @returns Array of VCRecord entries, or an empty array if the subject has
+   *          no anchored credentials
+   */
+  async getVCs(subjectAddress: string): Promise<VCRecord[]> {
+    const server = this.server;
+    const contract = new Contract(this.config.identityOracleId);
+    const sourceAccount = new Account(this.config.simAccount, "0");
+
+    const tx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: this.config.networkPassphrase,
+    })
+      .addOperation(
+        contract.call("get_vc_details", new Address(subjectAddress).toScVal()),
+      )
+      .setTimeout(30)
+      .build();
+
+    const sim = await server.simulateTransaction(tx);
+
+    if (SorobanRpc.Api.isSimulationError(sim)) {
+      throw new Error(`Simulation failed: ${sim.error}`);
+    }
+
+    if (!SorobanRpc.Api.isSimulationSuccess(sim)) {
+      throw new Error("Simulation returned unexpected response");
+    }
+
+    const resultScVal = sim.result?.retval;
+    if (!resultScVal) {
+      throw new Error("No return value in simulation result");
+    }
+
+    return parseVCRecordList(resultScVal);
+  }
+
+  /**
+   * Fetch the credential type label anchored for a subject's VC hash from the
+   * identity-oracle.
+   *
+   * Uses a read-only simulation (no signing required).
+   *
+   * @param subjectAddress - Stellar G... address of the credential subject
+   * @param vcHash - SHA-256 hash of the verifiable credential (must be exactly 32 bytes)
+   * @returns The credential type label (e.g. "generic", "kyc", "employment")
+   */
+  async getCredentialType(
+    subjectAddress: string,
+    vcHash: Buffer,
+  ): Promise<string> {
+    if (vcHash.length !== 32) {
+      throw new Error("vcHash must be exactly 32 bytes");
+    }
+
+    const server = this.server;
+    const contract = new Contract(this.config.identityOracleId);
+    const sourceAccount = new Account(this.config.simAccount, "0");
+
+    const hashScVal = nativeToScVal(new Uint8Array(vcHash), { type: "bytes" });
+
+    const tx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: this.config.networkPassphrase,
+    })
+      .addOperation(
+        contract.call(
+          "get_vc_credential_type",
+          new Address(subjectAddress).toScVal(),
+          hashScVal,
+        ),
+      )
+      .setTimeout(30)
+      .build();
+
+    const sim = await server.simulateTransaction(tx);
+
+    if (SorobanRpc.Api.isSimulationError(sim)) {
+      throw new Error(`Simulation failed: ${sim.error}`);
+    }
+
+    if (!SorobanRpc.Api.isSimulationSuccess(sim)) {
+      throw new Error("Simulation returned unexpected response");
+    }
+
+    const resultScVal = sim.result?.retval;
+    if (!resultScVal) {
+      throw new Error("No return value in simulation result");
+    }
+
+    return String(scValToNative(resultScVal));
+  }
+
+  /**
    * Fetch the scoring weights currently configured on the credit-oracle contract.
    *
    * Uses a read-only simulation (no signing required).
@@ -754,6 +853,30 @@ function parseScoringWeights(scVal: xdr.ScVal): ScoringWeights {
     txWeight: Number(raw["tx_weight"]),
     repaymentWeight: Number(raw["repayment_weight"]),
   };
+}
+
+/**
+ * Parse a Soroban ScVal representing a `Vec<VCRecord>`.
+ * The identity-oracle serializes `vc_hash` (BytesN<32>) as raw bytes, so
+ * the value is normalized to a Buffer for the exported VCRecord type.
+ */
+function parseVCRecordList(scVal: xdr.ScVal): VCRecord[] {
+  const native = scValToNative(scVal);
+  if (native === null || native === undefined) {
+    return [];
+  }
+  return (native as unknown[]).map((entry) => {
+    const raw = entry as Record<string, unknown>;
+    const vcHash = raw["vc_hash"] as Buffer | Uint8Array | undefined;
+    return {
+      vcHash: Buffer.isBuffer(vcHash)
+        ? vcHash
+        : Buffer.from(vcHash ?? new Uint8Array()),
+      issuer: String(raw["issuer"]),
+      anchoredAt: Number(raw["anchored_at"]),
+      revoked: Boolean(raw["revoked"]),
+    };
+  });
 }
 
 async function waitForTransactionConfirmation(

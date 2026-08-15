@@ -665,6 +665,118 @@ describe("StellarDIDCreditSDK", () => {
     });
   });
 
+  describe("getVCs", () => {
+    it("returns parsed VC records from get_vc_details", async () => {
+      const vcHash = Buffer.alloc(32, 7);
+      mockSimulateTransaction.mockResolvedValue({
+        result: {
+          retval: {
+            value: [
+              {
+                vc_hash: vcHash,
+                issuer: issuerKeypair.publicKey(),
+                anchored_at: 1_700_000_000,
+                revoked: false,
+              },
+              {
+                vc_hash: Buffer.alloc(32, 8),
+                issuer: issuerKeypair.publicKey(),
+                anchored_at: 1_700_000_001,
+                revoked: true,
+              },
+            ],
+          },
+        },
+      });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+      const result = await sdk.getVCs(subjectAddress);
+
+      expect(result).toHaveLength(2);
+      expect(result[0]).toEqual({
+        vcHash,
+        issuer: issuerKeypair.publicKey(),
+        anchoredAt: 1_700_000_000,
+        revoked: false,
+      });
+      expect(result[1]?.revoked).toBe(true);
+      expect(mockLastContractCall?.method).toBe("get_vc_details");
+      expect(mockLastContractCall?.args).toHaveLength(1);
+    });
+
+    it("returns an empty array when no VCs are anchored", async () => {
+      mockSimulateTransaction.mockResolvedValue({
+        result: {
+          retval: { value: [] },
+        },
+      });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+      const result = await sdk.getVCs(subjectAddress);
+
+      expect(result).toEqual([]);
+    });
+
+    it("throws on simulation error", async () => {
+      mockSimulateTransaction.mockResolvedValue({ error: "rpc error" });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+
+      await expect(sdk.getVCs(subjectAddress)).rejects.toThrow(
+        "Simulation failed: rpc error",
+      );
+    });
+  });
+
+  describe("getCredentialType", () => {
+    it("returns the credential type label for a valid hash", async () => {
+      mockSimulateTransaction.mockResolvedValue({
+        result: {
+          retval: { value: "kyc" },
+        },
+      });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+      const result = await sdk.getCredentialType(subjectAddress, Buffer.alloc(32, 3));
+
+      expect(result).toBe("kyc");
+      expect(mockLastContractCall?.method).toBe("get_vc_credential_type");
+      expect(mockLastContractCall?.args).toHaveLength(2);
+    });
+
+    it("defaults to generic when no type is stored", async () => {
+      mockSimulateTransaction.mockResolvedValue({
+        result: {
+          retval: { value: "generic" },
+        },
+      });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+      const result = await sdk.getCredentialType(subjectAddress, Buffer.alloc(32, 4));
+
+      expect(result).toBe("generic");
+    });
+
+    it("rejects non-32-byte credential hashes", async () => {
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+
+      await expect(
+        sdk.getCredentialType(subjectAddress, Buffer.alloc(31)),
+      ).rejects.toThrow("vcHash must be exactly 32 bytes");
+      expect(mockSimulateTransaction).not.toHaveBeenCalled();
+    });
+
+    it("throws on simulation error", async () => {
+      mockSimulateTransaction.mockResolvedValue({ error: "rpc error" });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+
+      await expect(
+        sdk.getCredentialType(subjectAddress, Buffer.alloc(32)),
+      ).rejects.toThrow("Simulation failed: rpc error");
+    });
+  });
+
   describe("isVerified", () => {
     it("returns true when subject has active VCs", async () => {
       mockSimulateTransaction.mockResolvedValue({
