@@ -595,6 +595,68 @@ Verifying VC for GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.
 ✅ VC is VALID and non-revoked on-chain.
 ```
 
+#### `is-verified` — Check verification status
+
+Checks whether a subject has at least one active, non-revoked verifiable credential (read-only, no fees).
+
+```bash
+stellar-did is-verified <subject-address>
+
+# Example
+stellar-did is-verified GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+```
+
+#### `vc-count` — Count active credentials
+
+Returns the number of active (non-revoked) verifiable credentials for a subject (read-only, no fees).
+
+```bash
+stellar-did vc-count <subject-address>
+```
+
+#### `vcs` — List credential anchors
+
+Lists every verifiable credential anchor for a subject, including revoked entries (read-only, no fees).
+
+```bash
+stellar-did vcs <subject-address>
+```
+
+#### `credential-type` — Fetch a credential type label
+
+Returns the credential type label anchored for a subject's VC hash (e.g. `kyc`, `employment`). Untyped credentials report `generic` (read-only, no fees).
+
+```bash
+stellar-did credential-type <subject-address> <vc-hash>
+
+# Example
+stellar-did credential-type GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
+```
+
+#### `did-doc` — Fetch a DID document CID
+
+Returns the IPFS CID of the DID document anchored for a subject (read-only, no fees).
+
+```bash
+stellar-did did-doc <subject-address>
+```
+
+#### `issuers` — List trusted issuers
+
+Lists all currently registered trusted credential issuers (read-only, no fees).
+
+```bash
+stellar-did issuers
+```
+
+#### `weights` — Show scoring weights
+
+Fetches the current scoring weights (VC, transaction, repayment) configured on the credit-oracle contract (read-only, no fees).
+
+```bash
+stellar-did weights
+```
+
 #### `compute-score` — Compute a credit score
 
 Submits a transaction to compute and persist a credit score on-chain. Requires a funded keypair to pay transaction fees.

@@ -1,26 +1,21 @@
 /**
  * Command-line interface for the Stellar DID Credit Protocol.
  *
- * Provides commands for anchoring DIDs, checking credit scores, verifying
- * credentials, and computing credit scores — all backed by the on-chain
- * Soroban contracts on Stellar.
+ * Provides commands for anchoring DIDs, verifying credentials, computing and
+ * reading credit scores, and querying protocol state (issuers, weights, VC
+ * anchors, DID documents) — all backed by the on-chain Soroban contracts on
+ * Stellar.
  *
  * @packageDocumentation
  */
 
 import { Command } from "commander";
+import { Keypair } from "@stellar/stellar-sdk";
 import {
-  Keypair,
-  Contract,
-  SorobanRpc,
-  TransactionBuilder,
-  BASE_FEE,
-  Account,
-  scValToNative,
-  nativeToScVal,
-  Address,
-} from "@stellar/stellar-sdk";
-import { StellarDIDCreditSDK } from "@stellar-did-credit/sdk";
+  StellarDIDCreditSDK,
+  type VCRecord,
+  type ScoringWeights,
+} from "@stellar-did-credit/sdk";
 import { loadConfig } from "./config";
 
 // ---------------------------------------------------------------------------
@@ -143,6 +138,51 @@ function printScoreRecord(record: {
   console.log();
 }
 
+/**
+ * Print the scoring weights as a short human-readable table.
+ */
+function printWeights(weights: ScoringWeights): void {
+  console.log();
+  console.log("┌─────────────────────────────────────┐");
+  console.log(`│  VC Weight:        ${String(weights.vcWeight).padStart(13)} │`);
+  console.log(
+    `│  TX Weight:        ${String(weights.txWeight).padStart(13)} │`,
+  );
+  console.log(
+    `│  Repayment Weight: ${String(weights.repaymentWeight).padStart(13)} │`,
+  );
+  console.log("└─────────────────────────────────────┘");
+  console.log();
+}
+
+/**
+ * Print a list of credential anchors as a readable table.
+ */
+function printVCRecords(records: VCRecord[]): void {
+  if (records.length === 0) {
+    console.log();
+    console.log("No verifiable credentials anchored for this subject.");
+    return;
+  }
+
+  console.log();
+  for (const record of records) {
+    console.log("┌─────────────────────────────────────┐");
+    console.log(
+      `│  Hash:    ${record.vcHash.toString("hex").slice(0, 12)}…${record.vcHash.toString("hex").slice(-12)}`,
+    );
+    console.log(`│  Issuer:  ${record.issuer}`);
+    console.log(
+      `│  Anchored: ${formatTimestamp(record.anchoredAt).slice(0, 19).padStart(13)} │`,
+    );
+    console.log(
+      `│  Revoked: ${String(record.revoked).padStart(14)} │`,
+    );
+    console.log("└─────────────────────────────────────┘");
+  }
+  console.log();
+}
+
 // ---------------------------------------------------------------------------
 // Command: anchor-did
 // ---------------------------------------------------------------------------
@@ -250,41 +290,13 @@ program
     assertStellarAddress("subject-address", upperAddr);
     const vcHash = parseVcHash(vcHashHex);
 
-    const server = new SorobanRpc.Server(config.rpcUrl);
-    const contract = new Contract(config.identityOracleId);
-    const sourceAccount = new Account(config.simAccount, "0");
+    const sdk = new StellarDIDCreditSDK(config);
 
     console.log(`Verifying VC for ${upperAddr}...`);
     console.log(`  VC Hash: ${vcHashHex}`);
 
     try {
-      const hashScVal = nativeToScVal(new Uint8Array(vcHash), { type: "bytes" });
-
-      const tx = new TransactionBuilder(sourceAccount, {
-        fee: config.baseFee || BASE_FEE,
-        networkPassphrase: config.networkPassphrase,
-      })
-        .addOperation(
-          contract.call(
-            "verify_vc",
-            new Address(upperAddr).toScVal(),
-            hashScVal,
-          ),
-        )
-        .setTimeout(config.timeoutSeconds ?? 30)
-        .build();
-
-      const sim = await server.simulateTransaction(tx);
-
-      if (SorobanRpc.Api.isSimulationError(sim)) {
-        throw new Error(`Simulation failed: ${sim.error}`);
-      }
-
-      if (!SorobanRpc.Api.isSimulationSuccess(sim)) {
-        throw new Error("Simulation returned unexpected response");
-      }
-
-      const result = scValToNative(sim.result!.retval) as boolean;
+      const result = await sdk.verifyVC(upperAddr, vcHash);
 
       console.log();
       if (result) {
@@ -350,6 +362,245 @@ program
       }
     },
   );
+
+// ---------------------------------------------------------------------------
+// Command: is-verified
+// ---------------------------------------------------------------------------
+
+program
+  .command("is-verified")
+  .description(
+    "Check whether a subject has at least one active, non-revoked verifiable credential.",
+  )
+  .argument("<subject-address>", "Stellar G... address of the subject")
+  .action(async (subjectAddress: string) => {
+    const config = loadConfig();
+    const upperAddr = subjectAddress.toUpperCase();
+    assertStellarAddress("subject-address", upperAddr);
+
+    const sdk = new StellarDIDCreditSDK(config);
+
+    console.log(`Checking verification status for ${upperAddr}...`);
+
+    try {
+      const verified = await sdk.isVerified(upperAddr);
+
+      console.log();
+      if (verified) {
+        console.log("✅ Subject is VERIFIED.");
+      } else {
+        console.log("❌ Subject is NOT verified — no active credentials found.");
+      }
+    } catch (err) {
+      console.error(
+        "Failed:",
+        err instanceof Error ? err.message : err,
+      );
+      process.exit(1);
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// Command: vc-count
+// ---------------------------------------------------------------------------
+
+program
+  .command("vc-count")
+  .description(
+    "Returns the number of active (non-revoked) verifiable credentials for a subject.",
+  )
+  .argument("<subject-address>", "Stellar G... address of the subject")
+  .action(async (subjectAddress: string) => {
+    const config = loadConfig();
+    const upperAddr = subjectAddress.toUpperCase();
+    assertStellarAddress("subject-address", upperAddr);
+
+    const sdk = new StellarDIDCreditSDK(config);
+
+    console.log(`Fetching active VC count for ${upperAddr}...`);
+
+    try {
+      const count = await sdk.getVCCount(upperAddr);
+
+      console.log();
+      console.log(`Active VC count: ${count}`);
+    } catch (err) {
+      console.error(
+        "Failed:",
+        err instanceof Error ? err.message : err,
+      );
+      process.exit(1);
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// Command: vcs
+// ---------------------------------------------------------------------------
+
+program
+  .command("vcs")
+  .description(
+    "List all verifiable credential anchors for a subject, including revoked entries.",
+  )
+  .argument("<subject-address>", "Stellar G... address of the subject")
+  .action(async (subjectAddress: string) => {
+    const config = loadConfig();
+    const upperAddr = subjectAddress.toUpperCase();
+    assertStellarAddress("subject-address", upperAddr);
+
+    const sdk = new StellarDIDCreditSDK(config);
+
+    console.log(`Fetching verifiable credentials for ${upperAddr}...`);
+
+    try {
+      const records = await sdk.getVCs(upperAddr);
+      printVCRecords(records);
+    } catch (err) {
+      console.error(
+        "Failed:",
+        err instanceof Error ? err.message : err,
+      );
+      process.exit(1);
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// Command: credential-type
+// ---------------------------------------------------------------------------
+
+program
+  .command("credential-type")
+  .description(
+    "Fetch the credential type label anchored for a subject's VC hash (e.g. kyc, employment).",
+  )
+  .argument("<subject-address>", "Stellar G... address of the credential subject")
+  .argument(
+    "<vc-hash>",
+    "SHA-256 hash of the verifiable credential (64 hex characters)",
+  )
+  .action(async (subjectAddress: string, vcHashHex: string) => {
+    const config = loadConfig();
+    const upperAddr = subjectAddress.toUpperCase();
+    assertStellarAddress("subject-address", upperAddr);
+    const vcHash = parseVcHash(vcHashHex);
+
+    const sdk = new StellarDIDCreditSDK(config);
+
+    console.log(`Fetching credential type for ${upperAddr}...`);
+    console.log(`  VC Hash: ${vcHashHex}`);
+
+    try {
+      const credentialType = await sdk.getCredentialType(upperAddr, vcHash);
+
+      console.log();
+      console.log(`Credential type: ${credentialType}`);
+    } catch (err) {
+      console.error(
+        "Failed:",
+        err instanceof Error ? err.message : err,
+      );
+      process.exit(1);
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// Command: did-doc
+// ---------------------------------------------------------------------------
+
+program
+  .command("did-doc")
+  .description(
+    "Fetch the IPFS CID of the DID document anchored for a subject address.",
+  )
+  .argument("<subject-address>", "Stellar G... address of the subject")
+  .action(async (subjectAddress: string) => {
+    const config = loadConfig();
+    const upperAddr = subjectAddress.toUpperCase();
+    assertStellarAddress("subject-address", upperAddr);
+
+    const sdk = new StellarDIDCreditSDK(config);
+
+    console.log(`Fetching DID document for ${upperAddr}...`);
+
+    try {
+      const cid = await sdk.getDIDDocument(upperAddr);
+
+      console.log();
+      if (cid) {
+        console.log(`DID Document CID: ${cid}`);
+      } else {
+        console.log("No DID document anchored for this address.");
+      }
+    } catch (err) {
+      console.error(
+        "Failed:",
+        err instanceof Error ? err.message : err,
+      );
+      process.exit(1);
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// Command: issuers
+// ---------------------------------------------------------------------------
+
+program
+  .command("issuers")
+  .description("List all currently registered trusted credential issuers.")
+  .action(async () => {
+    const config = loadConfig();
+
+    const sdk = new StellarDIDCreditSDK(config);
+
+    console.log("Fetching registered issuers...");
+
+    try {
+      const issuers = await sdk.getRegisteredIssuers();
+
+      console.log();
+      if (issuers.length === 0) {
+        console.log("No issuers registered.");
+        return;
+      }
+      issuers.forEach((issuer, index) => {
+        console.log(`${index + 1}. ${issuer}`);
+      });
+    } catch (err) {
+      console.error(
+        "Failed:",
+        err instanceof Error ? err.message : err,
+      );
+      process.exit(1);
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// Command: weights
+// ---------------------------------------------------------------------------
+
+program
+  .command("weights")
+  .description(
+    "Fetch the current scoring weights configured on the credit-oracle contract.",
+  )
+  .action(async () => {
+    const config = loadConfig();
+
+    const sdk = new StellarDIDCreditSDK(config);
+
+    console.log("Fetching scoring weights...");
+
+    try {
+      const weights = await sdk.getWeights();
+      printWeights(weights);
+    } catch (err) {
+      console.error(
+        "Failed:",
+        err instanceof Error ? err.message : err,
+      );
+      process.exit(1);
+    }
+  });
 
 // ---------------------------------------------------------------------------
 // Parse
