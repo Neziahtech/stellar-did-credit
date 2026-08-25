@@ -31,6 +31,18 @@ if (score) {
 }
 ```
 
+## Transaction reliability
+
+`anchorDID`, `issueVC`, `revokeVC`, and `computeScore` retry transient
+submission failures with exponential backoff starting at one second. The
+default is three retries after the initial submission attempt. Set
+`maxRetries` to `0` to disable submission retries.
+
+All four methods wait for a final on-chain transaction status before
+returning. `timeoutSeconds` sets the total confirmation deadline and defaults
+to 30 seconds. A transaction that remains pending or receives no RPC response
+before the deadline throws `SDKError` with code `TRANSACTION_TIMEOUT`.
+
 ## API
 
 ### `getScore(subjectAddress: string): Promise<ScoreRecord | null>`
