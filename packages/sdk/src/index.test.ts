@@ -1136,7 +1136,7 @@ describe("StellarDIDCreditSDK", () => {
   });
 
   describe("computeScore", () => {
-    it("returns an updated ScoreRecord after successful compute + confirmation", async () => {
+    it("returns the computed score number after successful compute + confirmation", async () => {
       mockGetAccount.mockResolvedValue({ sequenceNumber: () => "10" });
       mockSendTransaction.mockResolvedValue({
         status: "PENDING",
@@ -1149,7 +1149,7 @@ describe("StellarDIDCreditSDK", () => {
           result: {
             retval: {
               value: {
-                score: 558,
+                score: 612,
                 last_updated: 1_710_000_000,
                 vc_count: 2,
                 repayment_rate: 8500,
@@ -1168,14 +1168,8 @@ describe("StellarDIDCreditSDK", () => {
         subjectAddress,
       );
 
-      expect(result).toMatchObject({
-        score: 558,
-        lastUpdated: 1_710_000_000,
-        vcCount: 2,
-        repaymentRate: 8500,
-        txVolume30d: 2_000_000n,
-        stale: false,
-      });
+      expect(result).toBe(612);
+      expect(typeof result).toBe("number");
       expect(mockSendTransaction).toHaveBeenCalledTimes(1);
       expect(mockGetTransaction).toHaveBeenCalledWith("tx-compute-hash");
       expect(mockLastContractCall?.method).toBe("get_score");
@@ -1219,14 +1213,7 @@ describe("StellarDIDCreditSDK", () => {
       await Promise.resolve();
       await jest.advanceTimersByTimeAsync(5000);
 
-      await expect(computePromise).resolves.toMatchObject({
-        score: 612,
-        lastUpdated: 1_700_000_000,
-        vcCount: 3,
-        repaymentRate: 8000,
-        txVolume30d: 1_000_000n,
-        stale: false,
-      });
+      await expect(computePromise).resolves.toBe(612);
       expect(mockGetTransaction).toHaveBeenCalledTimes(2);
       expect(mockLastContractCall?.method).toBe("get_score");
     });
@@ -1288,6 +1275,53 @@ describe("StellarDIDCreditSDK", () => {
       expect(mockGetTransaction).toHaveBeenCalledTimes(1);
     });
 
+    it("throws SDKError with COOLDOWN_ACTIVE when cooldown is active on simulation", async () => {
+      mockGetAccount.mockResolvedValue({ sequenceNumber: () => "123" });
+      mockSimulateTransaction.mockResolvedValue({
+        error: "Error(Contract, #7): ComputeCooldownActive",
+      });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+
+      await expect(
+        sdk.computeScore(
+          { publicKey: () => subjectAddress } as unknown as Keypair,
+          subjectAddress,
+        ),
+      ).rejects.toMatchObject({
+        name: "SDKError",
+        code: "COOLDOWN_ACTIVE",
+        message: expect.stringContaining("Cooldown period is active"),
+      });
+      expect(mockSendTransaction).not.toHaveBeenCalled();
+    });
+
+    it("throws SDKError with COOLDOWN_ACTIVE when cooldown error in submission", async () => {
+      mockGetAccount.mockResolvedValue({ sequenceNumber: () => "123" });
+      mockSendTransaction.mockResolvedValue({
+        status: "PENDING",
+        hash: "tx-cooldown-hash",
+      });
+      mockGetTransaction.mockResolvedValue({
+        status: "FAILED",
+        errorResult: "Error(Contract, #7): ComputeCooldownActive",
+      });
+      mockSimulateTransaction.mockResolvedValue({ result: { retval: { value: null } } });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+
+      await expect(
+        sdk.computeScore(
+          { publicKey: () => subjectAddress } as unknown as Keypair,
+          subjectAddress,
+        ),
+      ).rejects.toMatchObject({
+        name: "SDKError",
+        code: "COOLDOWN_ACTIVE",
+        message: expect.stringContaining("Cooldown period is active"),
+      });
+    });
+
     it("throws when computeScore simulation returns an explicit error", async () => {
       mockGetAccount.mockResolvedValue({ sequenceNumber: () => "123" });
       mockSimulateTransaction.mockResolvedValue({ error: "compute_score rejected" });
@@ -1300,6 +1334,8 @@ describe("StellarDIDCreditSDK", () => {
           subjectAddress,
         ),
       ).rejects.toMatchObject({
+        name: "SDKError",
+        code: "TRANSACTION_FAILED",
         name: "CreditOracleError",
         code: 0,
         contractName: "credit-oracle",
@@ -1345,7 +1381,7 @@ describe("StellarDIDCreditSDK", () => {
 
       await jest.advanceTimersByTimeAsync(1000);
 
-      await expect(promise).resolves.toMatchObject({ score: 640 });
+      await expect(promise).resolves.toBe(640);
       expect(mockSendTransaction).toHaveBeenCalledTimes(2);
       expect(mockGetTransaction).toHaveBeenCalledWith("retried-compute-hash");
     });
