@@ -128,6 +128,8 @@ export interface FeederConfig {
   allowPartialStats?: boolean;
   /** Whether to skip legacy set_vc_count calls when identity oracle is configured */
   skipLegacyVcCount?: boolean;
+  /** Max consecutive failures before a subject enters dead-letter state (default: 5) */
+  maxConsecutiveFailures?: number;
   /** Network type for configuration */
   network?: string;
   /** Whether to run event-driven synchronization mode */
@@ -831,6 +833,10 @@ export class Feeder {
   private server: SorobanRpc.Server;
   /** Tracks the last-synced state per subject to avoid redundant syncs. */
   private syncState = new Map<string, SubjectSyncState>();
+  /** Tracks consecutive failure count per subject. */
+  private failureCounts = new Map<string, number>();
+  /** Subjects that have exceeded the maxConsecutiveFailures threshold. */
+  private deadLetterSubjects = new Set<string>();
   /** Tracks vc_hash -> subject from VCAnch events. Used for resolving Revoked events. */
   private hashToSubject = new Map<string, string>();
 
@@ -839,6 +845,15 @@ export class Feeder {
     private feederKeypair: Keypair,
   ) {
     this.server = new SorobanRpc.Server(config.rpcUrl);
+  }
+
+  /**
+   * Returns the current set of dead-letter subjects — those that have failed
+   * at least `maxConsecutiveFailures` consecutive cycles. Subjects are removed
+   * from this set once they feed successfully.
+   */
+  getDeadLetterSubjects(): string[] {
+    return Array.from(this.deadLetterSubjects);
   }
 
   /**
@@ -1086,6 +1101,8 @@ export class Feeder {
       validSubjects = this.config.subjects.filter(isValidStellarAddress);
     }
 
+    const maxFailures = this.config.maxConsecutiveFailures ?? 5;
+
     let succeeded = 0;
     let skipped = 0;
     let failed = 0;
@@ -1100,6 +1117,14 @@ export class Feeder {
       try {
         await this.feedSubject(subject, signal);
         succeeded++;
+        // Clear failure tracking and dead-letter state on success
+        if (this.deadLetterSubjects.has(subject)) {
+          console.log(
+            `[feeder] ${subject} recovered — removed from dead-letter queue`,
+          );
+          this.deadLetterSubjects.delete(subject);
+        }
+        this.failureCounts.delete(subject);
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
         const errorType = isPermanentError(err) ? "permanent" : "transient";
@@ -1111,6 +1136,22 @@ export class Feeder {
           skipped++;
         } else {
           failed++;
+        }
+
+        // Track consecutive failures for dead-letter detection
+        const prev = this.failureCounts.get(subject) ?? 0;
+        const next = prev + 1;
+        this.failureCounts.set(subject, next);
+
+        if (next >= maxFailures) {
+          this.deadLetterSubjects.add(subject);
+          console.error(
+            `[feeder] [dead-letter] ${subject} has failed ${next} consecutive cycles (threshold: ${maxFailures})`,
+          );
+        } else {
+          console.warn(
+            `[feeder] [dead-letter] ${subject} failure ${next}/${maxFailures} — will retry next cycle`,
+          );
         }
       }
     }
