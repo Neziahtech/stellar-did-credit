@@ -1,26 +1,13 @@
-#[cfg(test)]
-mod tests {
-    use credit_oracle::{
-        CreditOracle, CreditOracleClient, CreditOracleError, DataKey, DisputeStatus,
-        RepaymentRecord, RepaymentRecordV1, ScoringWeights, TxStats,
-    };
-    use governance::{Governance, GovernanceClient, GovernanceError};
-    use identity_oracle::{IdentityOracle, IdentityOracleClient, IdentityOracleError};
-    use revocation_registry::{RevocationRegistry, RevocationRegistryClient};
-    use soroban_sdk::{
-        contract, contractimpl, symbol_short,
-        testutils::{Address as _, Events, Ledger as _},
-        BytesN, Env, String, Symbol, TryIntoVal,
-    };
+use soroban_sdk::{Env, Address};
 
-    #[test]
-    fn test_initialize_emits_init_event() {
-        let env = Env::default();
-        env.mock_all_auths();
+#[test]
+fn test_score_freshness_enforcement() {
+    let env = Env::default();
+    env.mock_all_auths();
 
-        let identity_id = env.register_contract(None, IdentityOracle);
-        let credit_id = env.register_contract(None, CreditOracle);
-        let revocation_id = env.register_contract(None, RevocationRegistry);
+    let admin = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let issuer = Address::generate(&env);
 
         let identity = IdentityOracleClient::new(&env, &identity_id);
         let credit = CreditOracleClient::new(&env, &credit_id);
