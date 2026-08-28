@@ -7,6 +7,7 @@ members = [
   "contracts/score-range-verifier",
   "contracts/tests",
   "contracts/governance",
+  "zk/circuit",
 ]
 resolver = "2"
 
