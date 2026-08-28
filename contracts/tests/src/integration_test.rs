@@ -2364,4 +2364,3 @@ fn test_score_freshness_enforcement() {
             .set_sequence_number(env.ledger().sequence() + 1);
         assert_eq!(credit.compute_score(&subject), baseline);
     }
-}
