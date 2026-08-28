@@ -170,7 +170,7 @@ impl RevocationRegistry {
         match pending {
             Some(p) => {
                 if p != new_admin {
-                    panic!("not authorized");
+                    return Err(RevocationRegistryError::NotAuthorized);
                 }
             }
             None => return Err(RevocationRegistryError::NoPendingAdmin),

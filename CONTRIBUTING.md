@@ -126,18 +126,33 @@ Example:
 
 - `sdk`: added a convenience helper for reading the latest score from the chain (#174)
 
+## No `panic!()` in contract logic
+
+**Bare `panic!()` is forbidden in contract source files** (`contracts/*/src/*.rs`) outside of `#[test]` blocks. CI enforces this via the `contract-lint` job.
+
+| Allowed | Forbidden |
+| --- | --- |
+| `return Err(ErrorVariant)` | `panic!("error message")` |
+| `soroban_sdk::panic_with_error!(ErrorVariant)` | `todo!()`, `unimplemented!()`, `unreachable!()` |
+| `expect("descriptive message")` in non-contract code | `unwrap()` in contract logic |
+
+`panic_with_error!` is the Soroban-idiomatic way to abort execution with a typed contract error. Use it when a function signature cannot return `Result` (for example, legacy `initialize` functions that return `()`). Prefer returning `Result<(), ErrorType>` when possible.
+
+Test code (`#[cfg(test)]`, `#[test]`) is exempt from this rule.
+
 ## Auth pattern for initialize functions
 
 All `initialize` functions in protocol contracts **must** follow this exact order:
 
 ```rust
 // Security pattern: check_already_initialized → admin.require_auth() → set_admin
-pub fn initialize(env: Env, admin: Address) {
+pub fn initialize(env: Env, admin: Address) -> Result<(), ContractError> {
     if env.storage().instance().has(&DataKey::Admin) {
-        panic!("already initialized");
+        return Err(ContractError::AlreadyInitialized);
     }
     admin.require_auth();
     env.storage().instance().set(&DataKey::Admin, &admin);
+    Ok(())
 }
 ```
 

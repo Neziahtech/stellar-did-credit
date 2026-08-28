@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol};
 
 #[derive(Clone)]
 #[contracttype]
@@ -11,46 +11,71 @@ pub enum DataKey {
     LastStateChange(Address),
 }
 
+/// Error types for the identity-oracle contract.
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub enum IdentityOracleError {
+    /// Contract is already initialized.
+    AlreadyInitialized = 1,
+    /// Caller is not authorized to perform this action.
+    NotAuthorized = 2,
+    /// The issuer is not registered as a trusted issuer.
+    IssuerNotRegistered = 3,
+    /// The provided VC hash is not anchored for this subject.
+    VCNotFound = 4,
+    /// No pending admin proposal exists.
+    NoPendingAdmin = 5,
+    /// The provided DID document CID is invalid or empty.
+    InvalidCID = 6,
+    /// The maximum number of VC anchors per subject has been reached.
+    VCLimitReached = 7,
+    /// The issuer tier weight is out of the allowed range.
+    InvalidIssuerTier = 8,
+}
+
 #[contract]
 pub struct IdentityOracleContract;
 
 #[contractimpl]
 impl IdentityOracleContract {
-    pub fn initialize(env: Env, admin: Address) {
+    pub fn initialize(env: Env, admin: Address) -> Result<(), IdentityOracleError> {
         if env.storage().instance().has(&DataKey::Admin) {
-            panic!("already initialized");
+            return Err(IdentityOracleError::AlreadyInitialized);
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
+        Ok(())
     }
 
-    pub fn register_issuer(env: Env, admin: Address, issuer: Address) {
+    pub fn register_issuer(env: Env, admin: Address, issuer: Address) -> Result<(), IdentityOracleError> {
         admin.require_auth();
         let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         if admin != stored_admin {
-            panic!("not authorized");
+            return Err(IdentityOracleError::NotAuthorized);
         }
         env.storage().persistent().set(&DataKey::Issuer(issuer), &true);
+        Ok(())
     }
 
-    pub fn anchor_vc(env: Env, issuer: Address, subject: Address, vc_hash: soroban_sdk::BytesN<32>) {
+    pub fn anchor_vc(env: Env, issuer: Address, subject: Address, vc_hash: soroban_sdk::BytesN<32>) -> Result<(), IdentityOracleError> {
         issuer.require_auth();
         let is_issuer: bool = env.storage().persistent().get(&DataKey::Issuer(issuer)).unwrap_or(false);
         if !is_issuer {
-            panic!("unregistered issuer");
+            return Err(IdentityOracleError::IssuerNotRegistered);
         }
 
         let current_ledger = env.ledger().sequence();
         env.storage().persistent().set(&DataKey::VcAnchor(subject.clone(), vc_hash), &true);
         env.storage().persistent().set(&DataKey::LastStateChange(subject.clone()), &current_ledger);
+        Ok(())
     }
 
-    pub fn mark_vc_revoked(env: Env, issuer: Address, subject: Address, vc_hash: soroban_sdk::BytesN<32>) {
+    pub fn mark_vc_revoked(env: Env, issuer: Address, subject: Address, vc_hash: soroban_sdk::BytesN<32>) -> Result<(), IdentityOracleError> {
         issuer.require_auth();
         let is_issuer: bool = env.storage().persistent().get(&DataKey::Issuer(issuer)).unwrap_or(false);
         if !is_issuer {
-            panic!("unregistered issuer");
+            return Err(IdentityOracleError::IssuerNotRegistered);
         }
-        false
+        Ok(())
     }
 
     /// Returns the total number of anchored VC records for `subject`, including revoked entries.
@@ -93,7 +118,7 @@ impl IdentityOracleContract {
             return Err(IdentityOracleError::NotAuthorized);
         }
         if weight_bps == 0 || weight_bps > MAX_ISSUER_TIER_BPS {
-            panic!("invalid issuer tier");
+            return Err(IdentityOracleError::InvalidIssuerTier);
         }
         env.storage()
             .instance()

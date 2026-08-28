@@ -32,6 +32,33 @@ jobs:
       - name: Run clippy
         run: cargo clippy --workspace -- -D warnings
 
+  contract-lint:
+    name: Contract lint (no bare panic!)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for bare panic!() in contract source
+        run: |
+          # Fail if bare panic!() exists in contract source files.
+          # Exemptions:
+          #   - contracts/tests/ (integration test crate, all code is test code)
+          #   - soroban_sdk::panic_with_error! (canonical Soroban error signal)
+          #   - Lines containing // panic (comments)
+          matches=$(grep -rn 'panic!' contracts/*/src/ --include='*.rs' \
+            | grep -v '^contracts/tests/' \
+            | grep -v 'panic_with_error!' \
+            | grep -v '//.*panic' || true)
+          if [ -n "$matches" ]; then
+            echo "ERROR: Found bare panic!() in contract source files:"
+            echo "$matches"
+            echo ""
+            echo "Use soroban_sdk::panic_with_error!() or return Err() instead."
+            echo "See CONTRIBUTING.md for guidelines."
+            exit 1
+          fi
+          echo "No bare panic!() found in contract source files."
+
   fuzz:
     runs-on: ubuntu-latest
     steps:

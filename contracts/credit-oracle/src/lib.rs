@@ -34,6 +34,8 @@ pub enum CreditOracleError {
     /// `BPS_DENOMINATOR` (10_000), which would make the floor larger than a
     /// full-weight, brand-new credential.
     InvalidRecencyConfig = 13,
+    /// Weight application timelock has not yet expired.
+    TimelockNotExpired = 14,
 }
 
 /// Aggregate protocol-level counters stored in instance storage.
@@ -328,12 +330,13 @@ fn increment_repayments_recorded(env: &Env) {
 
 #[contractimpl]
 impl CreditOracleContract {
-    pub fn initialize(env: Env, admin: Address, identity_oracle: Address) {
+    pub fn initialize(env: Env, admin: Address, identity_oracle: Address) -> Result<(), CreditOracleError> {
         if env.storage().instance().has(&DataKey::Admin) {
-            panic!("already initialized");
+            return Err(CreditOracleError::AlreadyInitialized);
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::IdentityOracle, &identity_oracle);
+        Ok(())
     }
 
     pub fn update_tx_stats(
@@ -948,8 +951,8 @@ impl CreditOracleContract {
     }
 
     /// Apply pending weights after timelock expires
-    pub fn apply_weights(env: Env) {
-        let _ = ensure_not_paused(&env);
+    pub fn apply_weights(env: Env) -> Result<(), CreditOracleError> {
+        ensure_not_paused(&env)?;
         let effective_ledger: u32 = env
             .storage()
             .instance()
@@ -957,7 +960,7 @@ impl CreditOracleContract {
             .expect("no pending weights");
 
         if env.ledger().sequence() < effective_ledger {
-            panic!("timelock not expired");
+            return Err(CreditOracleError::TimelockNotExpired);
         }
 
         let weights: ScoringWeights = env
@@ -981,6 +984,7 @@ impl CreditOracleContract {
                 weights.repayment_weight,
             ),
         );
+        Ok(())
     }
 
     /// Get current scoring weights
