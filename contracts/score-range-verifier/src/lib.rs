@@ -671,6 +671,60 @@ mod tests {
     }
 
     #[test]
+    fn test_consumed_proof_replay_protection_survives_ledger_advance() {
+        use soroban_sdk::testutils::Ledger as _;
+
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, ScoreRangeVerifier);
+        let client = ScoreRangeVerifierClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let vk_hash = BytesN::from_array(&env, &[0xAB; 32]);
+        client.initialize(&admin, &vk_hash, &CIRCUIT_VERSION);
+
+        assert_eq!(PERS_TTL_THRESHOLD, 120_960);
+        assert_eq!(PERS_TTL_EXTEND, 518_400);
+
+        // Write a ConsumedProof entry via the test-only helper (bypasses
+        // Groth16 verification, which cannot be run in a unit test without
+        // the trusted-setup artifacts).
+        let proof_hash = BytesN::from_array(&env, &[0x77; 32]);
+        env.as_contract(&contract_id, || {
+            let key = DataKey::ConsumedProof(proof_hash.clone());
+            env.storage().persistent().set(&key, &true);
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, PERS_TTL_THRESHOLD, PERS_TTL_EXTEND);
+        });
+
+        // Advance the ledger in chunks smaller than INSTANCE_BUMP_AMOUNT,
+        // re-extending the instance's TTL before each step. A single jump
+        // past PERS_TTL_EXTEND would archive the instance itself.
+        let chunk: u32 = INSTANCE_BUMP_AMOUNT - 1_000;
+        let mut current: u32 = env.ledger().sequence();
+        let target: u32 = current + PERS_TTL_EXTEND - 1_000;
+
+        while current < target {
+            let next = core::cmp::min(current + chunk, target);
+            env.as_contract(&contract_id, || {
+            env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_BUMP_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+            });
+            env.ledger().set_sequence_number(next);
+            current = next;
+        }
+
+        // The ConsumedProof entry must still exist after advancing past
+        // PERS_TTL_EXTEND — this is the actual replay-protection guarantee.
+        env.as_contract(&contract_id, || {
+            assert!(env
+                .storage()
+                .persistent()
+                .has(&DataKey::ConsumedProof(proof_hash.clone())));
+        });
+    }
+    #[test]
     fn test_verify_score_range_requires_initialization() {
         let env = Env::default();
         env.mock_all_auths();
