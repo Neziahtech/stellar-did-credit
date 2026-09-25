@@ -2126,6 +2126,49 @@ describe("StellarDIDCreditSDK", () => {
     });
   });
 
+  describe("listIssuers", () => {
+    it("returns list of registered issuer addresses", async () => {
+      const issuers = ["GISSUER1", "GISSUER2"];
+      mockSimulateTransaction.mockResolvedValue({
+        result: {
+          retval: { value: issuers },
+        },
+      });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+      const result = await sdk.listIssuers();
+
+      expect(result).toEqual(issuers);
+      expect(mockLastContractCall?.method).toBe("list_issuers");
+    });
+
+    it("returns empty array when no issuers registered", async () => {
+      mockSimulateTransaction.mockResolvedValue({
+        result: {
+          retval: { value: [] },
+        },
+      });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+      const result = await sdk.listIssuers();
+
+      expect(result).toEqual([]);
+    });
+
+    it("throws on simulation error", async () => {
+      mockSimulateTransaction.mockResolvedValue({ error: "rpc error" });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+
+      await expect(sdk.listIssuers()).rejects.toMatchObject({
+        name: "IdentityOracleError",
+        code: 0,
+        contractName: "identity-oracle",
+        message: "rpc error",
+      });
+    });
+  });
+
   describe("getRegisteredIssuers", () => {
     it("returns list of registered issuer addresses", async () => {
       const issuers = ["GISSUER1", "GISSUER2"];

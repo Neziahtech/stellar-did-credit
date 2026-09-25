@@ -639,7 +639,7 @@ program
     console.log(`Fetching registered issuers on ${network}...`);
 
     try {
-      const issuers = await sdk.getRegisteredIssuers();
+      const issuers = await sdk.listIssuers();
 
       console.log();
       if (issuers.length === 0) {

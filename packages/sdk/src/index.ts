@@ -2598,11 +2598,11 @@ export class StellarDIDCreditSDK {
   /**
    * Returns the list of all currently registered (non-deregistered) trusted issuers.
    *
-   * Uses a read-only simulation against the identity-oracle contract.
+   * Calls `list_issuers` on the identity-oracle contract via read-only simulation.
    *
    * @returns Array of Stellar G... addresses of registered issuers
    */
-  async getRegisteredIssuers(): Promise<string[]> {
+  async listIssuers(): Promise<string[]> {
     const server = this.server;
     const contract = new Contract(this.config.identityOracleId);
     const sourceAccount = new Account(this.config.simAccount, "0");
@@ -2632,6 +2632,18 @@ export class StellarDIDCreditSDK {
 
     const native = scValToNative(resultScVal);
     return (native as unknown[]).map((addr) => String(addr));
+  }
+
+  /**
+   * Returns the list of all currently registered (non-deregistered) trusted issuers.
+   *
+   * Uses a read-only simulation against the identity-oracle contract.
+   *
+   * @returns Array of Stellar G... addresses of registered issuers
+   * @alias listIssuers
+   */
+  async getRegisteredIssuers(): Promise<string[]> {
+    return this.listIssuers();
   }
 
   /**
