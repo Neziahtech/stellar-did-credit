@@ -70,14 +70,15 @@ The `identity-oracle`, `credit-oracle`, and `revocation-registry` contracts emit
 
 - **Topic:** `[Symbol("Revoked")]`
 - **Data:** `(issuer: Address, vc_hash: BytesN<32>)`
-- **Emitted When:** An issuer revokes a single VC hash.
+- **Emitted When:** An issuer revokes a single VC hash, or for each individual VC hash revoked during `batch_revoke`.
 - **feeder Action:** Map the `vc_hash` to the subject, decrement their VC count, and submit `set_vc_count` to the credit oracle.
 
 #### BatchRev
 
 - **Topic:** `[Symbol("BatchRev")]`
 - **Data:** `(issuer: Address, count: u32)`
-- **Emitted When:** An issuer revokes a batch of VC hashes.
+- **Emitted When:** An issuer revokes a batch of VC hashes via `batch_revoke`. Emitted once at the completion of `batch_revoke` after all per-VC `Revoked` events for the batch have been emitted.
+- **feeder Action:** Optional aggregate tracking or metric collection. Indexers synchronizing credential status rely on the preceding per-VC `Revoked` events emitted for each item in the batch.
 
 ---
 

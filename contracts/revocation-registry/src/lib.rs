@@ -387,6 +387,9 @@ impl RevocationRegistry {
                 list.push_back(vc_hash.clone());
                 list_modified = true;
             }
+
+            env.events()
+                .publish((symbol_short!("Revoked"),), (issuer.clone(), vc_hash.clone()));
         }
 
         if list_modified {
@@ -569,6 +572,58 @@ mod tests {
         for vc_hash in vc_hashes.iter() {
             assert!(client.is_revoked(&vc_hash));
         }
+    }
+
+    #[test]
+    fn batch_revoke_events() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, RevocationRegistry);
+        let client = RevocationRegistryClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let issuer = Address::generate(&env);
+        let mut vc_hashes = Vec::new(&env);
+        for i in 0..3 {
+            let mut hash_arr = [0u8; 32];
+            hash_arr[0] = (i + 1) as u8;
+            vc_hashes.push_back(BytesN::from_array(&env, &hash_arr));
+        }
+
+        // Drain any initialization events
+        env.events().all();
+
+        client.batch_revoke(&issuer, &vc_hashes);
+
+        let events = env.events().all();
+        assert_eq!(
+            events.len(),
+            4,
+            "expected 3 Revoked events followed by 1 BatchRev event"
+        );
+
+        for i in 0..3 {
+            let (event_contract_id, topics, data) = events.get(i).unwrap();
+            assert_eq!(event_contract_id, contract_id);
+            assert_eq!(topics.len(), 1);
+            let topic: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+            assert_eq!(topic, symbol_short!("Revoked"));
+            let (event_issuer, event_hash): (Address, BytesN<32>) =
+                data.try_into_val(&env).unwrap();
+            assert_eq!(event_issuer, issuer);
+            assert_eq!(event_hash, vc_hashes.get(i).unwrap());
+        }
+
+        let (event_contract_id, topics, data) = events.get(3).unwrap();
+        assert_eq!(event_contract_id, contract_id);
+        assert_eq!(topics.len(), 1);
+        let topic: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+        assert_eq!(topic, symbol_short!("BatchRev"));
+        let (event_issuer, count): (Address, u32) = data.try_into_val(&env).unwrap();
+        assert_eq!(event_issuer, issuer);
+        assert_eq!(count, 3);
     }
 
     #[test]
