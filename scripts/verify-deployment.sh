@@ -26,6 +26,11 @@ if [ -z "$IDENTITY_ORACLE_ID" ] || [ "$IDENTITY_ORACLE_ID" == "null" ]; then
     exit 1
 fi
 
+if [ -z "$GOVERNANCE_ID" ] || [ "$GOVERNANCE_ID" == "null" ]; then
+    echo "Error: governance ID not found in $DEPLOYMENTS_FILE."
+    exit 1
+fi
+
 echo "Verifying identity-oracle configuration for ID: $IDENTITY_ORACLE_ID"
 REGISTRY_ADDR=$(stellar contract invoke \
   --id "$IDENTITY_ORACLE_ID" \
@@ -49,43 +54,35 @@ if [ -n "$CREDIT_ORACLE_ID" ] && [ "$CREDIT_ORACLE_ID" != "null" ]; then
       --id "$CREDIT_ORACLE_ID" \
       --network "$NETWORK" \
       -- get_identity_oracle 2>/dev/null || echo "error")
-    
+
     if [ "$IDENTITY_ADDR" == "error" ]; then
         echo "Error: failed to invoke get_identity_oracle on credit-oracle."
         exit 1
     fi
-    
+
     echo "Identity oracle configured as: $IDENTITY_ADDR"
     if [ "$IDENTITY_ADDR" == "null" ] || [ -z "$IDENTITY_ADDR" ]; then
         echo "Warning: identity-oracle is not linked to credit-oracle!"
         exit 1
     fi
-    
-    # Verify governance is the credit-oracle admin
-    CREDIT_ORACLE_ADMIN=$(stellar contract invoke \
+
+    echo "Verifying governance is credit-oracle admin..."
+    CREDIT_ADMIN=$(stellar contract invoke \
       --id "$CREDIT_ORACLE_ID" \
       --network "$NETWORK" \
       -- get_admin 2>/dev/null || echo "error")
-    
-    if [ "$CREDIT_ORACLE_ADMIN" == "error" ]; then
+
+    if [ "$CREDIT_ADMIN" == "error" ]; then
         echo "Error: failed to invoke get_admin on credit-oracle."
         exit 1
     fi
-    
-    echo "Credit-oracle admin: $CREDIT_ORACLE_ADMIN"
-    
-    if [ -n "$GOVERNANCE_ID" ] && [ "$GOVERNANCE_ID" != "null" ]; then
-        echo "Governance contract: $GOVERNANCE_ID"
-        if [ "$CREDIT_ORACLE_ADMIN" == "$GOVERNANCE_ID" ]; then
-            echo "PASS: Governance is correctly set as credit-oracle admin"
-        else
-            echo "FAIL: Credit-oracle admin ($CREDIT_ORACLE_ADMIN) does not match governance contract ($GOVERNANCE_ID)"
-            echo "Error: Governance votes will have no effect - admin mismatch detected"
-            exit 1
-        fi
-    else
-        echo "Warning: governance contract ID not found in $DEPLOYMENTS_FILE - cannot verify admin relationship"
+
+    echo "Credit-oracle admin: $CREDIT_ADMIN"
+    if [ "$CREDIT_ADMIN" != "$GOVERNANCE_ID" ]; then
+        echo "Error: governance ($GOVERNANCE_ID) is not credit-oracle admin ($CREDIT_ADMIN)."
+        exit 1
     fi
+    echo "Governance is correctly wired as credit-oracle admin."
 fi
 
 echo "Deployment configuration verified successfully!"
