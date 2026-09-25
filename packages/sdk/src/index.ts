@@ -21,6 +21,11 @@ const BATCH_ANCHOR_MAX_SIZE = 10;
 import * as ZkWasm from "@stellar-did-credit/zk-wasm";
 
 
+// Need to import WASM prover
+// In a real env, we'd import this properly, assuming it's available as @stellar-did-credit/zk-wasm
+import * as ZkWasm from "@stellar-did-credit/zk-wasm";
+
+
 export type NetworkType = "testnet" | "mainnet" | "futurenet" | "custom";
 
 export interface ScoreRecord {
