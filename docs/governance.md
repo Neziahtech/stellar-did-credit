@@ -15,7 +15,7 @@ The governance contract provides on-chain proposal creation, weighted voting, an
 Related reading:
 
 - [Architecture Guide](architecture.md) — ADR-003 (governance respects credit-oracle timelock) and the admin-transfer two-step flow.
-- [Epoch Model](EPOCH_MODEL.md) — Instance TTL requirements, weight timelock semantics, and the relationship between admin-gated calls and contract liveness.
+- [Epoch Model](epoch-model.md) — Instance TTL requirements, weight timelock semantics, and the relationship between admin-gated calls and contract liveness.
 - [Scoring Specification](scoring-spec.md) — What the three scoring weights (vc, tx, repayment) actually control in the credit score formula.
 
 ---
@@ -544,11 +544,11 @@ number of read-only simulations performed by the client.
 
 - Reaction window #1 (governance `execution_delay_ledgers`) starts when voting closes. Operators should set this to a non-zero value for mainnet proposals so the community can review the outcome of a contentious vote before `execute` queues the weights.
 - Reaction window #2 (credit-oracle 17,280 ledgers) is fixed and unavoidable even with `execution_delay_ledgers = 0`. Users and integrators can inspect `credit-oracle.get_pending_weights()` during this window and, if disagreeing, exit dependent positions.
-- There is NO `update_weights` bypass in the current credit-oracle code. Earlier documentation (`docs/EPOCH_MODEL.md` §5.2 and §8 table) mentions an `update_weights` admin bypass that was never merged into `credit-oracle/src/lib.rs`. The code only exposes `propose_weights` → `apply_weights`. All weight changes, even admin-initiated, must wait the 17,280-ledger timelock. (The admin of the credit-oracle — i.e., the governance contract — can always deploy a new credit-oracle WASM via `upgrade`, which changes behavior without going through the weight timelock. This is an orthogonal escape hatch.)
+- There is NO `update_weights` bypass in the current credit-oracle code. Earlier documentation (`docs/epoch-model.md` §5.2 and §8 table) mentions an `update_weights` admin bypass that was never merged into `credit-oracle/src/lib.rs`. The code only exposes `propose_weights` → `apply_weights`. All weight changes, even admin-initiated, must wait the 17,280-ledger timelock. (The admin of the credit-oracle — i.e., the governance contract — can always deploy a new credit-oracle WASM via `upgrade`, which changes behavior without going through the weight timelock. This is an orthogonal escape hatch.)
 
 ### 5.4 Instance TTL and Lost Pending Proposals
 
-- If no admin-gated call is made on governance for longer than the instance TTL window (~30 days with the default pattern used in the other three contracts — see `EPOCH_MODEL.md`), the governance contract's instance storage could be archived. If that happens before `apply_weights` is called, the `CreditOracle` instance key is lost. The pending weights inside the credit-oracle are **still there** (they live in credit-oracle's instance storage, managed by credit-oracle admin-gated calls), so an operator can call `credit-oracle.apply_weights()` directly without going through governance. The governance contract being archived does not trap pending weights — but it does mean future proposals cannot be created until governance is redeployed and re-accepted as credit-oracle admin.
+- If no admin-gated call is made on governance for longer than the instance TTL window (~30 days with the default pattern used in the other three contracts — see `epoch-model.md`), the governance contract's instance storage could be archived. If that happens before `apply_weights` is called, the `CreditOracle` instance key is lost. The pending weights inside the credit-oracle are **still there** (they live in credit-oracle's instance storage, managed by credit-oracle admin-gated calls), so an operator can call `credit-oracle.apply_weights()` directly without going through governance. The governance contract being archived does not trap pending weights — but it does mean future proposals cannot be created until governance is redeployed and re-accepted as credit-oracle admin.
 - Moral: ensure at least one admin-gated call runs on governance every ~30 days. A cronned `set_quorum(admin, current_quorum_value)` (no-op write) suffices.
 
 ### 5.5 Proposal ID and Creation Order
