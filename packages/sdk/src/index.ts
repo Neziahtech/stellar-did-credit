@@ -3421,7 +3421,7 @@ function assertSafeInteger(value: GovernanceInteger): void {
   }
 }
 
-function scoringWeightsToScVal(weights: ScoringWeights): xdr.ScVal {
+export function scoringWeightsToScVal(weights: ScoringWeights): xdr.ScVal {
   return nativeToScVal(
     {
       vc_weight: weights.vcWeight,

@@ -5,4 +5,7 @@ module.exports = {
   transform: {
     '^.+\\.tsx?$': ['ts-jest', { diagnostics: false }],
   },
+  moduleNameMapper: {
+    '^@stellar-did-credit/sdk$': '<rootDir>/../sdk/src/index.ts',
+  },
 };
