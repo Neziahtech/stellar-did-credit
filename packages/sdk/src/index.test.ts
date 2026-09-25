@@ -2875,6 +2875,58 @@ describe("parseContractErrorCode", () => {
     ).toThrow(new GovernanceError(19, "InvalidVotingPeriod (code 19)"));
   });
 
+  it("maps NoPendingWeights governance errors to their variant name", () => {
+    expect(() =>
+      throwContractError("Error(Contract, #15)", "governance"),
+    ).toThrow(new GovernanceError(15, "NoPendingWeights (code 15)"));
+  });
+
+  it("maps ContractPaused governance errors to their variant name", () => {
+    expect(() =>
+      throwContractError("Error(Contract, #16)", "governance"),
+    ).toThrow(new GovernanceError(16, "ContractPaused (code 16)"));
+  });
+
+  it("maps VoteTallyOverflow governance errors to their variant name", () => {
+    expect(() =>
+      throwContractError("Error(Contract, #17)", "governance"),
+    ).toThrow(new GovernanceError(17, "VoteTallyOverflow (code 17)"));
+  });
+
+  it("maps ProposalRejected governance errors to their variant name", () => {
+    expect(() =>
+      throwContractError("Error(Contract, #18)", "governance"),
+    ).toThrow(new GovernanceError(18, "ProposalRejected (code 18)"));
+  });
+
+  it("maps every governance error code 1-18 to its human-readable variant name", () => {
+    const expectedNames: Record<number, string> = {
+      1: "AlreadyInitialized",
+      2: "NotAuthorized",
+      3: "ProposalNotFound",
+      4: "ProposalExpired",
+      5: "ProposalNotExpired",
+      6: "ProposalAlreadyExecuted",
+      7: "InvalidWeights",
+      8: "InvalidQuorum",
+      9: "InvalidVoteWeight",
+      10: "QuorumNotMet",
+      11: "TimelockNotExpired",
+      12: "VoterNotRegistered",
+      13: "InsufficientVoteWeight",
+      14: "ProposalAlreadyCancelled",
+      15: "NoPendingWeights",
+      16: "ContractPaused",
+      17: "VoteTallyOverflow",
+      18: "ProposalRejected",
+    };
+    for (const [code, name] of Object.entries(expectedNames)) {
+      expect(() =>
+        throwContractError(`Error(Contract, #${code})`, "governance"),
+      ).toThrow(new GovernanceError(Number(code), `${name} (code ${code})`));
+    }
+  });
+
   it("maps InvalidAmount credit-oracle errors to their variant name", () => {
     expect(() =>
       throwContractError("Error(Contract, #17)", "credit-oracle"),
