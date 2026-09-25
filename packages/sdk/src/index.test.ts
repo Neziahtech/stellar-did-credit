@@ -351,6 +351,51 @@ describe("StellarDIDCreditSDK", () => {
       await expect(sdk.governance.getProposal(999n)).resolves.toBeNull();
     });
 
+    it("decodes a cancelled proposal with its proposer address", async () => {
+      const proposerAddress =
+        "GBUQWP3BOUZX34ULNQG23RQ6F4YUSXHTQSXE7XDZT4A65XJLQRGEZSM";
+      mockSimulateTransaction.mockResolvedValueOnce({
+        result: {
+          retval: {
+            value: {
+              id: 12n,
+              proposer: proposerAddress,
+              proposed_weights: {
+                vc_weight: 50,
+                tx_weight: 25,
+                repayment_weight: 25,
+              },
+              votes_for: 80n,
+              votes_against: 40n,
+              expiry_ledger: 200,
+              execution_delay_ledgers: 50,
+              executed: false,
+              cancelled: true,
+              quorum_required: 100n,
+            },
+          },
+        },
+      });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+      const proposal = await sdk.governance.getProposal(12n);
+
+      expect(proposal).toEqual<GovernanceProposal>({
+        id: 12n,
+        proposer: proposerAddress,
+        proposedWeights: governanceWeights,
+        votesFor: 80n,
+        votesAgainst: 40n,
+        expiryLedger: 200,
+        executionDelayLedgers: 50,
+        executed: false,
+        cancelled: true,
+        quorumRequired: 100n,
+      });
+      expect(proposal?.cancelled).toBe(true);
+      expect(proposal?.proposer).toBe(proposerAddress);
+    });
+
     it("executes and applies weights through signed governance calls", async () => {
       const sdk = new StellarDIDCreditSDK(mockConfig);
 
