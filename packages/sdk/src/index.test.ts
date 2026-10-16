@@ -3389,6 +3389,12 @@ describe("parseContractErrorCode", () => {
     ).toThrow(new CreditOracleError(17, "InvalidAmount (code 17)"));
   });
 
+  it("maps InvalidComputeCooldown credit-oracle errors to their variant name", () => {
+    expect(() =>
+      throwContractError("Error(Contract, #18)", "credit-oracle"),
+    ).toThrow(new CreditOracleError(18, "InvalidComputeCooldown (code 18)"));
+  });
+
   it("maps InvalidIssuerTier identity-oracle errors to their variant name", () => {
     expect(() =>
       throwContractError("Error(Contract, #11)", "identity-oracle"),
@@ -3690,6 +3696,94 @@ describe("batchRevokeVC", () => {
         type: "u32",
       });
       expect(mockSendTransaction).toHaveBeenCalledTimes(1);
+    });
+
+    it("returns the default cooldown of 1 ledger when none is stored", async () => {
+      // get_compute_cooldown_ledgers falls back to
+      // DEFAULT_COMPUTE_COOLDOWN_LEDGERS (1) when nothing is persisted.
+      mockSimulateTransaction.mockResolvedValueOnce({
+        result: { retval: { value: 1 } },
+      });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+      await expect(sdk.getComputeCooldownLedgers()).resolves.toBe(1);
+      expect(mockContractCalls[0]).toMatchObject({
+        contractId: mockConfig.creditOracleId,
+        method: "get_compute_cooldown_ledgers",
+        args: [],
+      });
+      expect(mockSendTransaction).not.toHaveBeenCalled();
+    });
+
+    it("accepts the lower bound of 1 ledger", async () => {
+      mockSimulateTransaction.mockResolvedValueOnce({
+        result: { retval: { value: null } },
+      });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+      await expect(
+        sdk.setComputeCooldownLedgers(adminKeypair as never, 1),
+      ).resolves.toBe("mock-tx-hash");
+      expect(mockContractCalls[0]).toMatchObject({
+        contractId: mockConfig.creditOracleId,
+        method: "set_compute_cooldown_ledgers",
+      });
+      expect(mockContractCalls[0]?.args[0]).toMatchObject({ address: "GADMIN" });
+      expect(mockContractCalls[0]?.args[1]).toMatchObject({
+        value: 1,
+        type: "u32",
+      });
+      expect(mockSendTransaction).toHaveBeenCalledTimes(1);
+    });
+
+    it("accepts the upper bound of 86400 ledgers", async () => {
+      mockSimulateTransaction.mockResolvedValueOnce({
+        result: { retval: { value: null } },
+      });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+      await expect(
+        sdk.setComputeCooldownLedgers(adminKeypair as never, 86_400),
+      ).resolves.toBe("mock-tx-hash");
+      expect(mockContractCalls[0]?.args[1]).toMatchObject({
+        value: 86_400,
+        type: "u32",
+      });
+      expect(mockSendTransaction).toHaveBeenCalledTimes(1);
+    });
+
+    it("surfaces InvalidComputeCooldown for a cooldown below the lower bound", async () => {
+      mockSimulateTransaction.mockResolvedValueOnce({
+        error: "Error(Contract, #18)",
+      });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+      await expect(
+        sdk.setComputeCooldownLedgers(adminKeypair as never, 0),
+      ).rejects.toMatchObject({
+        name: "CreditOracleError",
+        code: 18,
+        contractName: "credit-oracle",
+        message: "InvalidComputeCooldown (code 18)",
+      });
+      expect(mockSendTransaction).not.toHaveBeenCalled();
+    });
+
+    it("surfaces InvalidComputeCooldown for a cooldown above the upper bound", async () => {
+      mockSimulateTransaction.mockResolvedValueOnce({
+        error: "Error(Contract, #18)",
+      });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+      await expect(
+        sdk.setComputeCooldownLedgers(adminKeypair as never, 86_401),
+      ).rejects.toMatchObject({
+        name: "CreditOracleError",
+        code: 18,
+        contractName: "credit-oracle",
+        message: "InvalidComputeCooldown (code 18)",
+      });
+      expect(mockSendTransaction).not.toHaveBeenCalled();
     });
   });
 
