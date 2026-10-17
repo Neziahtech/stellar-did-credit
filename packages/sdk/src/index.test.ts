@@ -2276,6 +2276,27 @@ describe("StellarDIDCreditSDK", () => {
       expect(mockLastContractCall?.method).toBe("get_scoring_weights");
     });
 
+    it("returns scoring weights that sum to 100", async () => {
+      mockSimulateTransaction.mockResolvedValue({
+        result: {
+          retval: {
+            value: {
+              vc_weight: 40,
+              tx_weight: 30,
+              repayment_weight: 30,
+            },
+          },
+        },
+      });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+      const result = await sdk.getWeights();
+
+      expect(
+        result.vcWeight + result.txWeight + result.repaymentWeight,
+      ).toBe(100);
+    });
+
     it("throws on simulation error", async () => {
       mockSimulateTransaction.mockResolvedValue({ error: "rpc error" });
 
@@ -2318,6 +2339,31 @@ describe("StellarDIDCreditSDK", () => {
         },
         effectiveLedger: 1_234_567,
       });
+      expect(mockLastContractCall?.method).toBe("get_pending_weights");
+    });
+
+    it("returns pending scoring weights that sum to 100", async () => {
+      mockSimulateTransaction.mockResolvedValue({
+        result: {
+          retval: {
+            value: {
+              weights: {
+                vc_weight: 45,
+                tx_weight: 30,
+                repayment_weight: 25,
+              },
+              effective_ledger: 1_234_567,
+            },
+          },
+        },
+      });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+      const result = await sdk.getPendingWeights();
+
+      expect(result).not.toBeNull();
+      const { vcWeight, txWeight, repaymentWeight } = result!.weights;
+      expect(vcWeight + txWeight + repaymentWeight).toBe(100);
       expect(mockLastContractCall?.method).toBe("get_pending_weights");
     });
 
