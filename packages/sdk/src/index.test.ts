@@ -3558,7 +3558,7 @@ describe("batchRevokeVC", () => {
       minRecencyBps: 5000,
     };
 
-    it("gets the recency decay config", async () => {
+    it("gets an enabled recency decay config", async () => {
       mockSimulateTransaction.mockResolvedValueOnce({
         result: {
           retval: {
@@ -3579,6 +3579,73 @@ describe("batchRevokeVC", () => {
         contractId: mockConfig.creditOracleId,
         method: "get_recency_decay",
       });
+    });
+
+    it("gets a disabled recency decay config", async () => {
+      mockSimulateTransaction.mockResolvedValueOnce({
+        result: {
+          retval: {
+            value: {
+              enabled: false,
+              decay_bps_per_day: 12,
+              min_recency_bps: 7500,
+            },
+          },
+        },
+      });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+      const config = await sdk.getRecencyDecayConfig();
+
+      expect(config).toEqual({
+        enabled: false,
+        decayBpsPerDay: 12,
+        minRecencyBps: 7500,
+      });
+      expect(mockContractCalls[0]).toMatchObject({
+        contractId: mockConfig.creditOracleId,
+        method: "get_recency_decay",
+      });
+    });
+
+    it("returns the documented defaults when no config has been set", async () => {
+      // The credit-oracle fills in DEFAULT_DECAY_BPS_PER_DAY (5) and
+      // DEFAULT_MIN_RECENCY_BPS (5000) with enabled: false until an admin
+      // calls set_recency_decay (see test_get_recency_decay_defaults_to_disabled).
+      mockSimulateTransaction.mockResolvedValueOnce({
+        result: {
+          retval: {
+            value: {
+              enabled: false,
+              decay_bps_per_day: 5,
+              min_recency_bps: 5000,
+            },
+          },
+        },
+      });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+      const config = await sdk.getRecencyDecayConfig();
+
+      expect(config).toEqual({
+        enabled: false,
+        decayBpsPerDay: 5,
+        minRecencyBps: 5000,
+      });
+      expect(mockContractCalls[0]).toMatchObject({
+        contractId: mockConfig.creditOracleId,
+        method: "get_recency_decay",
+      });
+    });
+
+    it("throws when the simulation returns no retval", async () => {
+      mockSimulateTransaction.mockResolvedValueOnce({ result: {} });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+
+      await expect(sdk.getRecencyDecayConfig()).rejects.toThrow(
+        "No return value in simulation result",
+      );
     });
 
     it("sets the recency decay config", async () => {
